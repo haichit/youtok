@@ -1,0 +1,38 @@
+<table class="w-full text-left">
+  <thead>
+    <tr class="text-white/60 text-sm border-b border-white/10">
+      <th class="py-3">Title</th>
+      <th>Status</th>
+      <th>Progress</th>
+      <th>Clips</th>
+      <th>Created</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for job in jobs %}
+    <tr class="border-b border-white/5 hover:bg-white/5 transition">
+      <td class="py-3"><a href="/jobs/{{ job.id }}" class="hover:text-accent-pink transition">{{ job.video_title or job.source_url }}</a></td>
+      <td><span class="px-2 py-1 rounded text-xs
+        {% if job.status == 'done' %}bg-emerald-500/20 text-emerald-300
+        {% elif job.status == 'failed' %}bg-red-500/20 text-red-300
+        {% elif job.status == 'pending' %}bg-white/10
+        {% else %}bg-accent-pink/20 text-accent-pink{% endif %}
+      ">{{ job.status }}</span></td>
+      <td>
+        <div class="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
+          <div class="h-full gradient-btn transition-all" style="width: {{ job.progress_pct }}%"></div>
+        </div>
+      </td>
+      <td>{{ job.clips_count }}</td>
+      <td class="text-white/60 text-sm">{{ job.created_at.strftime('%m-%d %H:%M') }}</td>
+      <td><a href="/jobs/{{ job.id }}" class="text-accent-pink hover:underline text-sm">View</a></td>
+    </tr>
+    {% endfor %}
+    {% if not jobs %}
+    <tr>
+      <td colspan="6" class="py-8 text-center text-white/40">No jobs yet. Create one!</td>
+    </tr>
+    {% endif %}
+  </tbody>
+</table>

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% set show_nav = true %}
+{% block title %}Dashboard — Youtok{% endblock %}
+{% block content %}
+<!-- Stats grid -->
+<div class="grid grid-cols-4 gap-4 mb-6">
+  <div class="glass rounded-2xl p-6">
+    <div class="text-white/60 text-sm">Total</div>
+    <div class="text-3xl font-bold mt-2">{{ stats.total }}</div>
+  </div>
+  <div class="glass rounded-2xl p-6">
+    <div class="text-white/60 text-sm">Running</div>
+    <div class="text-3xl font-bold mt-2 text-accent-pink">{{ stats.running }}</div>
+  </div>
+  <div class="glass rounded-2xl p-6">
+    <div class="text-white/60 text-sm">Done</div>
+    <div class="text-3xl font-bold mt-2 text-emerald-400">{{ stats.done }}</div>
+  </div>
+  <div class="glass rounded-2xl p-6">
+    <div class="text-white/60 text-sm">Failed</div>
+    <div class="text-3xl font-bold mt-2 text-red-400">{{ stats.failed }}</div>
+  </div>
+</div>
+
+<!-- Job table -->
+<div class="glass rounded-2xl p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-xl font-bold">Jobs</h2>
+    <a href="/jobs/new" class="gradient-btn px-4 py-2 rounded-lg text-sm font-semibold">+ New</a>
+  </div>
+  <div hx-get="/jobs?partial=1" hx-trigger="every 5s" hx-swap="innerHTML">
+    {% include "partials/job_table.html" %}
+  </div>
+</div>
+{% endblock %}

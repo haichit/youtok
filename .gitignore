@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+data/
+!data/.gitkeep
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+private_key.pem
+*.log
+
+# Test artifacts
+tmp_test/
+
+# Build artifacts
+*.egg-info/
+build/
+dist/
+
+# Internal state
+.claude/
+
+# Runtime data (license, DB, logs)
+data/

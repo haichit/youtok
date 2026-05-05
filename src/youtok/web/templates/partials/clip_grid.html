@@ -1,0 +1,12 @@
+<div class="grid grid-cols-2 gap-4">
+  {% for clip in clips %}
+  <div class="glass rounded-xl p-4">
+    <div class="text-xs text-accent-pink mb-1">Part {{ clip.part_number }}/{{ clip.total_parts }}</div>
+    <div class="font-semibold mb-1">{{ clip.topic_name }}</div>
+    <div class="text-xs text-white/60">{{ "%.1f"|format(clip.duration_sec) }}s · coherence {{ "%.1f"|format(clip.coherence_score) }}/5</div>
+    <div class="text-xs text-white/40 mt-2 font-mono break-all">{{ clip.output_path }}</div>
+  </div>
+  {% else %}
+  <div class="text-white/60 text-sm col-span-2">No clips yet — pipeline still running.</div>
+  {% endfor %}
+</div>

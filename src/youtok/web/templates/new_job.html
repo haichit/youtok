@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% set show_nav = true %}
+{% block title %}New Job — Youtok{% endblock %}
+{% block content %}
+<div class="glass rounded-3xl p-8 max-w-3xl mx-auto">
+  <h1 class="text-3xl font-bold mb-6">New Job</h1>
+
+  <!-- Tabs -->
+  <div class="flex gap-2 mb-6 border-b border-white/10">
+    <button onclick="showTab('single')" class="tab-btn px-4 py-2 text-accent-pink border-b-2 border-accent-pink">Single URL</button>
+    <button onclick="showTab('bulk')" class="tab-btn px-4 py-2">Bulk (paste many)</button>
+    <button onclick="showTab('channel')" class="tab-btn px-4 py-2">Channel</button>
+  </div>
+
+  <div id="tab-single" class="tab-pane">
+    <form method="POST" action="/jobs/" class="space-y-4">
+      <input name="source_url" placeholder="https://youtube.com/watch?v=..." required
+             class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+      <input name="output_dir" placeholder="/Users/me/Videos/Cuts" required
+             class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+      <button type="submit" class="gradient-btn px-6 py-2 rounded-lg font-semibold text-white">Submit</button>
+    </form>
+  </div>
+
+  <div id="tab-bulk" class="tab-pane hidden">
+    <form method="POST" action="/jobs/bulk" class="space-y-4">
+      <textarea name="urls" rows="10" placeholder="Paste URLs, one per line" required
+                class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 font-mono text-sm text-white focus:border-accent-purple outline-none resize-none"></textarea>
+      <input name="output_dir" placeholder="/Users/me/Videos/Cuts" required
+             class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+      <button type="submit" class="gradient-btn px-6 py-2 rounded-lg font-semibold text-white">Submit All</button>
+    </form>
+  </div>
+
+  <div id="tab-channel" class="tab-pane hidden">
+    <form hx-post="/channels/preview" hx-target="#channel-result" class="space-y-4">
+      <input name="channel_url" placeholder="https://youtube.com/@channel" required
+             class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+      <div class="grid grid-cols-3 gap-2">
+        <input name="min_duration_sec" type="number" value="300" placeholder="Min sec"
+               class="bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+        <input name="max_duration_sec" type="number" value="1800" placeholder="Max sec"
+               class="bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+        <input name="limit" type="number" value="50" placeholder="Limit"
+               class="bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+      </div>
+      <button type="submit" class="gradient-btn px-6 py-2 rounded-lg font-semibold text-white">Preview</button>
+    </form>
+    <div id="channel-result" class="mt-6"></div>
+  </div>
+</div>
+
+<script>
+  function showTab(name) {
+    document.querySelectorAll('.tab-pane').forEach(e => e.classList.add('hidden'));
+    document.getElementById('tab-' + name).classList.remove('hidden');
+    document.querySelectorAll('.tab-btn').forEach(e => {
+      e.classList.remove('text-accent-pink', 'border-b-2', 'border-accent-pink');
+    });
+    event.target.classList.add('text-accent-pink', 'border-b-2', 'border-accent-pink');
+  }
+</script>
+{% endblock %}

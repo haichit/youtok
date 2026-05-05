@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% set show_nav = false %}
+{% block title %}Activate — Youtok{% endblock %}
+{% block content %}
+<div class="flex items-center justify-center min-h-[80vh]">
+  <div class="glass rounded-3xl p-12 w-full max-w-md">
+    <h1 class="text-4xl font-bold bg-gradient-to-r from-accent-purple to-accent-pink bg-clip-text text-transparent mb-2">Activate Youtok</h1>
+    <p class="text-white/60 mb-8">Enter your license key to bind this machine.</p>
+
+    {% if error %}
+    <div class="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mb-4 text-red-200 text-sm">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/activate/" class="space-y-4">
+      <textarea name="license_key" required rows="4" placeholder="YOUTOK-..."
+                class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-4 text-sm font-mono focus:border-accent-purple outline-none resize-none text-white"></textarea>
+      <button type="submit" class="gradient-btn w-full py-3 rounded-lg font-semibold text-white">Activate</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

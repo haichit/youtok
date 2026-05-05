@@ -1,0 +1,30 @@
+<form method="POST" action="/jobs/channel" class="space-y-4">
+  <input type="hidden" name="channel_url" value="{{ channel_url }}">
+  <input name="output_dir" placeholder="/Users/me/Videos/Cuts" required class="w-full glass rounded-lg p-3">
+
+  <div class="glass rounded-xl p-4 max-h-96 overflow-y-auto">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-sm text-white/60">{{ videos|length }} videos found</span>
+      <button type="button" onclick="toggleAll(this)" class="text-xs text-accent-pink">Toggle all</button>
+    </div>
+    {% for v in videos %}
+    <label class="flex items-center gap-3 py-2 hover:bg-white/5 rounded">
+      <input type="checkbox" name="selected_video_urls" value="{{ v.url }}" checked>
+      <div class="flex-1">
+        <div class="text-sm">{{ v.title }}</div>
+        <div class="text-xs text-white/40">{% if v.duration_sec %}{{ "%.0f"|format(v.duration_sec / 60) }}min{% else %}? min{% endif %} · {{ v.upload_date or '?' }}</div>
+      </div>
+    </label>
+    {% endfor %}
+  </div>
+
+  <button type="submit" class="gradient-btn px-6 py-2 rounded-lg font-semibold">Create {{ videos|length }} jobs</button>
+</form>
+
+<script>
+  function toggleAll(btn) {
+    const cbs = document.querySelectorAll('input[name="selected_video_urls"]');
+    const allChecked = Array.from(cbs).every(cb => cb.checked);
+    cbs.forEach(cb => cb.checked = !allChecked);
+  }
+</script>

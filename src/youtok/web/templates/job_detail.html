@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% set show_nav = true %}
+{% block title %}Job #{{ job.id }} — Youtok{% endblock %}
+{% block content %}
+<div class="grid grid-cols-3 gap-6">
+  <!-- Left: progress -->
+  <div class="col-span-1 glass rounded-2xl p-6">
+    <h2 class="text-xl font-bold mb-2">{{ job.video_title or job.source_url }}</h2>
+    <div class="text-white/60 text-sm mb-4">
+      <span class="px-2 py-1 rounded text-xs bg-white/10">{{ job.status }}</span>
+    </div>
+    <div class="w-full h-3 bg-white/10 rounded-full overflow-hidden">
+      <div id="progress-bar" class="h-full gradient-btn transition-all duration-300" style="width: {{ job.progress_pct }}%"></div>
+    </div>
+    <div id="progress-pct" class="text-sm mt-1 text-white/40">{{ job.progress_pct }}%</div>
+    <div id="progress-step" class="text-sm mt-2 text-accent-pink">{{ job.current_step or '—' }}</div>
+    <div id="progress-message" class="text-sm text-white/60 mt-1"></div>
+
+    {% if job.status == 'failed' %}
+    <div class="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mt-4 text-red-200 text-sm">{{ job.error_message }}</div>
+    {% endif %}
+
+    <div class="mt-6 text-xs text-white/40 space-y-1">
+      <div>Source: <span class="text-white/60 break-all">{{ job.source_url }}</span></div>
+      <div>Output: <span class="text-white/60 break-all">{{ job.output_dir }}</span></div>
+      {% if job.video_duration_sec %}
+      <div>Duration: {{ "%.0f"|format(job.video_duration_sec / 60) }} min</div>
+      {% endif %}
+      {% if job.created_at %}
+      <div>Created: {{ job.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Right: clips -->
+  <div class="col-span-2 glass rounded-2xl p-6">
+    <h2 class="text-xl font-bold mb-4">Clips ({{ clips|length }})</h2>
+    <div id="clip-grid" hx-get="/jobs/{{ job.id }}/clips" hx-trigger="load, every 3s" hx-swap="innerHTML">
+      <div class="text-white/60 text-sm">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const ws = new WebSocket(`ws://${location.host}/ws/jobs/{{ job.id }}`);
+ws.onmessage = (ev) => {
+  const data = JSON.parse(ev.data);
+  if (data.ping) return;
+  document.getElementById('progress-bar').style.width = data.pct + '%';
+  document.getElementById('progress-pct').textContent = data.pct + '%';
+  document.getElementById('progress-step').textContent = data.step;
+  document.getElementById('progress-message').textContent = data.message;
+  if (data.status === 'done' || data.status === 'failed') {
+    setTimeout(() => location.reload(), 1500);
+  }
+};
+ws.onerror = () => console.log('WebSocket error — will reconnect on page refresh');
+</script>
+{% endblock %}
