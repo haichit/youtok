@@ -21,6 +21,15 @@ def get_machine_id() -> str:
             text=True,
             encoding="utf-8",
         )
-        uuid = out.split("\n")[1].strip()
+        # wmic on Win11 inserts a blank line between the "UUID" header
+        # and the value; pick the first non-header non-empty line.
+        uuid = ""
+        for line in out.splitlines():
+            line = line.strip()
+            if line and line.upper() != "UUID":
+                uuid = line
+                break
+        if not uuid:
+            raise RuntimeError("Could not read machine UUID from wmic")
         return hashlib.sha256(uuid.encode()).hexdigest()[:16]
     raise RuntimeError(f"Unsupported platform: {sys}")

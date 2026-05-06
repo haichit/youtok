@@ -4,8 +4,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if getattr(sys, "frozen", False):
     _BASE = Path(sys.executable).parent
+    # Bundled read-only resources (public key, fonts, ffmpeg, web templates)
+    # live inside the PyInstaller bundle, not next to the exe.
+    _BUNDLE = Path(getattr(sys, "_MEIPASS", _BASE))
 else:
     _BASE = Path(__file__).parent.parent.parent
+    _BUNDLE = _BASE
 
 
 class Settings(BaseSettings):
@@ -27,7 +31,7 @@ class Settings(BaseSettings):
     base_dir: Path = _BASE
     data_dir: Path = _BASE / "data"
     workdir: Path = _BASE / "data" / "workdir"
-    assets_dir: Path = _BASE / "assets"
+    assets_dir: Path = _BUNDLE / "assets"
 
     # Logging
     log_level: str = "INFO"
