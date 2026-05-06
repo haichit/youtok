@@ -1,10 +1,22 @@
+import sys
 import click
 from loguru import logger
+
+
+def _setup_crash_log():
+    """Write all output to error.log next to the exe so crashes are debuggable."""
+    if not getattr(sys, "frozen", False):
+        return
+    import os
+    log_path = os.path.join(os.path.dirname(sys.executable), "error.log")
+    logger.add(log_path, rotation="1 MB", retention=3)
+    sys.stderr = open(log_path, "a")
 
 
 @click.group(invoke_without_command=True)
 @click.pass_context
 def main(ctx):
+    _setup_crash_log()
     if ctx.invoked_subcommand is None:
         serve()
 
@@ -104,36 +116,43 @@ def transcribe_cmd(audio: str):
 def serve(host: str = "127.0.0.1", port: int = 17555):
     """Start web server + background worker."""
     import subprocess
-    import sys
     import threading
+    import traceback
     import webbrowser
 
-    if getattr(sys, "frozen", False):
-        exe = sys.executable
-        worker_proc = subprocess.Popen(
-            [exe, "worker"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    else:
-        worker_proc = subprocess.Popen(
-            [sys.executable, "-m", "youtok.cli", "worker"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-    def open_browser():
-        import time
-        time.sleep(1.5)
-        webbrowser.open(f"http://{host}:{port}")
-
-    threading.Thread(target=open_browser, daemon=True).start()
-
-    import uvicorn
     try:
-        uvicorn.run("youtok.api.main:app", host=host, port=port)
-    finally:
-        worker_proc.terminate()
+        if getattr(sys, "frozen", False):
+            exe = sys.executable
+            worker_proc = subprocess.Popen(
+                [exe, "worker"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            worker_proc = subprocess.Popen(
+                [sys.executable, "-m", "youtok.cli", "worker"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+        def open_browser():
+            import time
+            time.sleep(1.5)
+            webbrowser.open(f"http://{host}:{port}")
+
+        threading.Thread(target=open_browser, daemon=True).start()
+
+        import uvicorn
+        try:
+            uvicorn.run("youtok.api.main:app", host=host, port=port)
+        finally:
+            worker_proc.terminate()
+    except Exception:
+        logger.exception("Fatal error in serve")
+        if getattr(sys, "frozen", False):
+            traceback.print_exc()
+            input("Press Enter to exit...")
+        raise
 
 
 @main.command()
