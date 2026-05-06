@@ -27,8 +27,9 @@ dist/
 # Runtime data (license, DB, logs)
 data/
 
-# Sensitive keys
-assets/keys/
+# Sensitive keys (private key only — public key ships with app)
+assets/keys/*
+!assets/keys/public_key.pem
 
 # Runtime output
 nohup.out
