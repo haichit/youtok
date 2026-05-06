@@ -7,7 +7,7 @@ Output: dist/youtok/youtok.exe
 
 import os
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
@@ -21,14 +21,16 @@ _all_datas = [
     ("assets", "assets"),
 ]
 datas = [(src, dst) for src, dst in _all_datas if os.path.exists(src)]
-datas += collect_data_files("litellm", includes=["*.json", "*.txt"])
+datas += collect_data_files("litellm")
+
+_litellm_hiddenimports = collect_submodules("litellm")
 
 a = Analysis(
     ["src/youtok/cli.py"],
     pathex=["src"],
     binaries=[],
     datas=datas,
-    hiddenimports=[
+    hiddenimports=_litellm_hiddenimports + [
         "youtok.api.main",
         "youtok.api.routes.activate",
         "youtok.api.routes.channels",
