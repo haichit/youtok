@@ -16,8 +16,11 @@ _all_datas = [
     ("src/youtok/web/templates", "youtok/web/templates"),
     ("src/youtok/web/static", "youtok/web/static"),
     ("src/youtok/version.py", "youtok"),
-    ("vendor/ffmpeg/ffmpeg.exe", "ffmpeg"),
-    ("vendor/ffmpeg/ffprobe.exe", "ffmpeg"),
+    # Vendor binaries — bundle into assets/bin/win/ to match config.bin_dir.
+    # Run scripts/fetch_vendor_bins.py before building.
+    ("vendor/ffmpeg/ffmpeg.exe", "assets/bin/win"),
+    ("vendor/ffmpeg/ffprobe.exe", "assets/bin/win"),
+    ("vendor/yt-dlp/yt-dlp.exe", "assets/bin/win"),
     ("assets", "assets"),
 ]
 datas = [(src, dst) for src, dst in _all_datas if os.path.exists(src)]
