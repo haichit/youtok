@@ -1,7 +1,11 @@
+import sys
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_BASE = Path(__file__).parent.parent.parent
+if getattr(sys, "frozen", False):
+    _BASE = Path(sys.executable).parent
+else:
+    _BASE = Path(__file__).parent.parent.parent
 
 
 class Settings(BaseSettings):
@@ -20,10 +24,10 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # Paths
-    base_dir: Path = Path(__file__).parent.parent.parent
-    data_dir: Path = Path(__file__).parent.parent.parent / "data"
-    workdir: Path = Path(__file__).parent.parent.parent / "data" / "workdir"
-    assets_dir: Path = Path(__file__).parent.parent.parent / "assets"
+    base_dir: Path = _BASE
+    data_dir: Path = _BASE / "data"
+    workdir: Path = _BASE / "data" / "workdir"
+    assets_dir: Path = _BASE / "assets"
 
     # Logging
     log_level: str = "INFO"
