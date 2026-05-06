@@ -1,4 +1,18 @@
 import sys
+
+# Windowed PyInstaller builds (console=False on Windows) leave
+# sys.stdout / sys.stderr as None. uvicorn's ColourizedFormatter calls
+# sys.stdout.isatty() during config and click also writes to stdout —
+# both crash on None. Give them a real (no-op) file object before any
+# other import touches them.
+if sys.stdout is None or sys.stderr is None:
+    import os as _os
+    _devnull = open(_os.devnull, "w", encoding="utf-8")
+    if sys.stdout is None:
+        sys.stdout = _devnull
+    if sys.stderr is None:
+        sys.stderr = _devnull
+
 import click
 from loguru import logger
 
