@@ -7,6 +7,7 @@ Output: dist/youtok/youtok.exe
 
 import os
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
 
@@ -20,6 +21,7 @@ _all_datas = [
     ("assets", "assets"),
 ]
 datas = [(src, dst) for src, dst in _all_datas if os.path.exists(src)]
+datas += collect_data_files("litellm", includes=["*.json", "*.txt"])
 
 a = Analysis(
     ["src/youtok/cli.py"],
