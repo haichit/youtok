@@ -44,12 +44,25 @@ _webview_hiddenimports = collect_submodules("webview") + collect_submodules("clr
 datas += collect_data_files("webview")
 datas += collect_data_files("clr_loader")
 
+# faster-whisper: ctranslate2 ships native DLLs as data, av/onnxruntime ship
+# native libs PyInstaller's analyzer doesn't always pick up.
+_whisper_hiddenimports = (
+    collect_submodules("faster_whisper")
+    + collect_submodules("ctranslate2")
+    + collect_submodules("onnxruntime")
+    + collect_submodules("av")
+)
+datas += collect_data_files("faster_whisper")
+datas += collect_data_files("ctranslate2")
+datas += collect_data_files("onnxruntime")
+datas += collect_data_files("av")
+
 a = Analysis(
     ["src/youtok/cli.py"],
     pathex=["src"],
     binaries=[],
     datas=datas,
-    hiddenimports=_litellm_hiddenimports + _tiktoken_hiddenimports + _webview_hiddenimports + [
+    hiddenimports=_litellm_hiddenimports + _tiktoken_hiddenimports + _webview_hiddenimports + _whisper_hiddenimports + [
         "youtok.api.main",
         "youtok.api.routes.activate",
         "youtok.api.routes.channels",
