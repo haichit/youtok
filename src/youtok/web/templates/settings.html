@@ -1,0 +1,448 @@
+{% extends "base.html" %}
+{% set show_nav = true %}
+{% block title %}Settings — Youtok{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+  <h1 class="text-3xl font-bold">Settings</h1>
+
+  <!-- Concurrent jobs -->
+  <div class="glass rounded-2xl p-6">
+    <h2 class="text-xl font-bold mb-2">Xử lý song song</h2>
+    <div class="text-sm text-white/60 mb-4">
+      Số video chạy <strong>cùng lúc</strong>. Tăng để batch nhanh hơn, giảm nếu máy yếu/RAM ít.
+      Đổi giá trị có hiệu lực <strong>ngay lập tức</strong> với job tiếp theo trong queue (không cần restart).
+    </div>
+
+    <div class="flex items-center gap-4">
+      <label for="concurrent-jobs-slider" class="text-sm text-white/70 whitespace-nowrap">
+        Số job song song:
+      </label>
+      <input id="concurrent-jobs-slider" type="range" min="1" max="{{ concurrent_jobs_max }}"
+             value="{{ concurrent_jobs }}"
+             oninput="document.getElementById('cj-value').textContent = this.value"
+             onchange="setConcurrentJobs(this.value)"
+             class="flex-1 accent-accent-pink">
+      <span id="cj-value" class="text-2xl font-bold font-mono text-accent-pink min-w-[40px] text-right">{{ concurrent_jobs }}</span>
+      <span class="text-xs text-white/40">/ {{ concurrent_jobs_max }}</span>
+    </div>
+
+    <div class="mt-4 grid grid-cols-3 gap-3 text-xs text-white/60">
+      <div class="glass rounded p-2">
+        <div class="text-white/40">Đang chạy</div>
+        <div class="text-lg font-bold text-accent-pink" id="active-jobs-count">{{ active_jobs_count }}</div>
+      </div>
+      <div class="glass rounded p-2">
+        <div class="text-white/40">Khuyến nghị</div>
+        <div class="text-sm">RAM 16GB → 2-3<br>RAM 32GB → 3-5<br>RAM 64GB → 5-7</div>
+      </div>
+      <div class="glass rounded p-2">
+        <div class="text-white/40">Thời gian 10 video</div>
+        <div class="text-sm" id="time-estimate">~50 min</div>
+      </div>
+    </div>
+
+    <div id="cj-status" class="text-xs mt-2 text-emerald-300/0"></div>
+  </div>
+
+  <!-- Active provider -->
+  <div class="glass rounded-2xl p-6">
+    <h2 class="text-xl font-bold mb-4">LLM Provider</h2>
+    <div class="text-sm text-white/60 mb-3">Currently active: <span class="text-accent-pink font-semibold">{{ provider_defaults[active_provider]["name"] }}</span></div>
+    <div class="text-xs text-white/40 mb-4 leading-relaxed">
+      <strong class="text-white/60">Lưu ý:</strong> Anthropic / OpenAI / Gemini không expose số dư còn lại qua API key thông thường (chỉ admin tokens / dashboard session). Số liệu dưới đây là <span class="text-emerald-300/80">tổng đã dùng từ máy này</span> (đọc từ <code class="font-mono">data/logs/llm-cost.jsonl</code>). Số dư thực phải xem ở billing dashboard của vendor (link bên dưới mỗi card).
+    </div>
+
+    <div class="space-y-3">
+      {% for provider_id, label in provider_choices %}
+      {% set has_key = keys[provider_id] is not none %}
+      {% set u = usage.get(provider_id, {"cost": 0, "calls": 0, "in_tokens": 0, "out_tokens": 0}) %}
+      <div class="glass rounded-xl p-4 {% if provider_id == active_provider %}border border-accent-pink{% endif %}">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <div class="font-semibold">{{ label }}</div>
+            <div class="text-xs text-white/40">{{ provider_defaults[provider_id]["stage_a"] }} + {{ provider_defaults[provider_id]["stage_b"] }}</div>
+          </div>
+          <div>
+            {% if has_key %}<span class="text-emerald-400 text-sm">&#10003; Configured</span>{% endif %}
+            {% if provider_id == active_provider %}<span class="ml-2 gradient-btn px-3 py-1 rounded text-xs">ACTIVE</span>{% endif %}
+          </div>
+        </div>
+
+        <!-- Usage summary -->
+        <div class="grid grid-cols-3 gap-2 mb-3 text-xs">
+          <div class="glass rounded p-2">
+            <div class="text-white/50">Đã dùng (USD)</div>
+            <div class="font-mono text-emerald-300">${{ "%.4f"|format(u.cost) }}</div>
+          </div>
+          <div class="glass rounded p-2">
+            <div class="text-white/50">Đã dùng (VND)</div>
+            <div class="font-mono text-emerald-300/80">{{ fmt_vnd(u.cost) }}</div>
+          </div>
+          <div class="glass rounded p-2">
+            <div class="text-white/50">{{ u.calls }} calls · {{ "{:,}".format((u.in_tokens or 0) + (u.out_tokens or 0)) }} tokens</div>
+            <a href="{{ provider_defaults[provider_id]['billing_url'] }}" target="_blank" rel="noopener"
+               class="text-accent-pink hover:underline">Xem billing →</a>
+          </div>
+        </div>
+
+        <details class="mt-2">
+          <summary class="cursor-pointer text-sm text-accent-pink">Configure</summary>
+          <form class="mt-3 space-y-3" id="form-{{ provider_id }}">
+            <input type="hidden" name="provider" value="{{ provider_id }}">
+            <div>
+              <label class="text-xs text-white/60 block mb-1">
+                API Key
+                {% if has_key %}<span class="text-emerald-400 ml-1">(đã lưu — gõ để thay key mới, để trống = giữ nguyên)</span>{% endif %}
+              </label>
+              <input type="password" name="api_key"
+                     placeholder="{% if has_key %}Đã lưu — chỉ gõ nếu muốn đổi{% else %}{{ provider_defaults[provider_id]['key_prefix'] }}...{% endif %}"
+                     class="w-full glass rounded p-2 text-sm font-mono"
+                     {% if not has_key %}required{% endif %}>
+            </div>
+            {% set saved_a = keys[provider_id].stage_a_model if keys[provider_id] and keys[provider_id].stage_a_model else provider_defaults[provider_id]['stage_a'] %}
+            {% set saved_b = keys[provider_id].stage_b_model if keys[provider_id] and keys[provider_id].stage_b_model else provider_defaults[provider_id]['stage_b'] %}
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-white/60 block mb-1">Stage A model</label>
+                <select name="stage_a_model" class="w-full glass rounded p-2 text-sm font-mono bg-bg-mid">
+                  {% for value, label in provider_defaults[provider_id]['stage_a_options'] %}
+                  <option value="{{ value }}" {% if value == saved_a %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-white/60 block mb-1">Stage B model</label>
+                <select name="stage_b_model" class="w-full glass rounded p-2 text-sm font-mono bg-bg-mid">
+                  {% for value, label in provider_defaults[provider_id]['stage_b_options'] %}
+                  <option value="{{ value }}" {% if value == saved_b %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="set_active" value="true">
+              <span>Set as active provider</span>
+            </label>
+            <div class="flex gap-2">
+              <button type="button" onclick="testKey('{{ provider_id }}')" class="glass px-4 py-2 rounded text-sm hover:bg-white/10 transition">Test connection</button>
+              <button type="button" onclick="saveProvider('{{ provider_id }}')" class="gradient-btn px-4 py-2 rounded text-sm">Save</button>
+            </div>
+            <div id="status-{{ provider_id }}" class="text-sm mt-2"></div>
+          </form>
+        </details>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Logo management -->
+  <div class="glass rounded-2xl p-6">
+    <h2 class="text-xl font-bold mb-2">Logo khung hình</h2>
+    <div class="text-sm text-white/60 mb-4">
+      Upload 2 ảnh PNG (nền trong suốt) cho mỗi bộ logo: 1 ảnh trên + 1 ảnh dưới. Logo sẽ được chèn cố định vào khung hình video 9:16.
+    </div>
+
+    <!-- Dimension guide -->
+    <div class="glass rounded-lg p-3 mb-4 text-xs leading-relaxed">
+      <div class="font-semibold text-white/80 mb-1">Kích thước yêu cầu:</div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <span class="text-accent-pink font-mono font-bold">Logo trên:</span>
+          <span class="text-white/60">1080 &times; 150 px</span>
+          <div class="text-white/40 mt-0.5">Đặt ở đỉnh video, phía trên tiêu đề</div>
+        </div>
+        <div>
+          <span class="text-emerald-400 font-mono font-bold">Logo dưới:</span>
+          <span class="text-white/60">1080 &times; 150 px</span>
+          <div class="text-white/40 mt-0.5">Đặt ở đáy video, phía dưới phụ đề</div>
+        </div>
+      </div>
+      <div class="text-white/40 mt-2">Format: PNG nền trong suốt. Đúng kích thước = không bị co giãn.</div>
+    </div>
+
+    <!-- Upload form -->
+    <form id="logo-upload-form" class="space-y-3 mb-4">
+      <div>
+        <label class="text-xs text-white/60 block mb-1">Tên logo</label>
+        <input name="name" placeholder="Ví dụ: Channel ABC" required
+               class="w-full glass rounded p-2 text-sm">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs text-accent-pink block mb-1">Ảnh trên (1080 &times; 150)</label>
+          <input type="file" name="top_file" accept=".png" required
+                 class="w-full glass rounded p-2 text-sm text-white/70 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-accent-pink/20 file:text-accent-pink">
+        </div>
+        <div>
+          <label class="text-xs text-emerald-400 block mb-1">Ảnh dưới (1080 &times; 150)</label>
+          <input type="file" name="bottom_file" accept=".png" required
+                 class="w-full glass rounded p-2 text-sm text-white/70 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-emerald-400/20 file:text-emerald-400">
+        </div>
+      </div>
+      <button type="button" onclick="uploadLogo()" class="gradient-btn px-4 py-2 rounded text-sm">Upload</button>
+    </form>
+    <div id="logo-upload-status" class="text-sm mb-3"></div>
+
+    <!-- Logo list -->
+    <div id="logo-list" class="space-y-2">
+      {% if logos %}
+      {% for logo in logos %}
+      <div class="glass rounded-lg p-3" id="logo-item-{{ logo.id }}">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <span class="font-semibold text-sm">{{ logo.name }}</span>
+            <span class="text-xs text-white/40 ml-2">ID #{{ logo.id }} · {{ logo.created_at.strftime('%d/%m/%Y %H:%M') }}</span>
+          </div>
+          <button onclick="deleteLogo({{ logo.id }})" class="text-red-400 hover:text-red-300 text-sm px-2 py-1 rounded hover:bg-red-500/10">Xóa</button>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="bg-white/5 rounded p-1">
+            <div class="text-[10px] text-accent-pink mb-1">TOP</div>
+            <img src="/settings/logos/{{ logo.id }}/preview/top" alt="top"
+                 class="w-full h-auto object-contain rounded">
+          </div>
+          <div class="bg-white/5 rounded p-1">
+            <div class="text-[10px] text-emerald-400 mb-1">BOTTOM</div>
+            <img src="/settings/logos/{{ logo.id }}/preview/bottom" alt="bottom"
+                 class="w-full h-auto object-contain rounded">
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <div class="text-sm text-white/40 italic" id="logo-empty">Chưa có logo nào. Upload logo đầu tiên ở trên.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Google Drive -->
+  <div class="glass rounded-2xl p-6">
+    <h2 class="text-xl font-bold mb-2">Google Drive</h2>
+    <div class="text-sm text-white/60 mb-4">
+      Kết nối Google Drive để upload clips sau khi xử lý xong. Clips sẽ được tải lên thư mục riêng theo tên video.
+    </div>
+
+    {% if not drive_status.has_credentials %}
+    <div class="bg-yellow-500/20 border border-yellow-500/50 rounded-lg p-3 text-yellow-200 text-sm">
+      <strong>Chưa có credentials.</strong> Đặt file <code class="font-mono bg-white/10 px-1 rounded">google_drive_credentials.json</code> vào thư mục <code class="font-mono bg-white/10 px-1 rounded">assets/keys/</code> để bật tính năng này.
+      <div class="text-xs text-yellow-200/60 mt-1">Tạo OAuth2 client ID tại Google Cloud Console → APIs & Services → Credentials.</div>
+    </div>
+    {% elif drive_status.connected %}
+    <div class="flex items-center justify-between">
+      <div>
+        <span class="text-emerald-400">&#10003; Đã kết nối</span>
+        <span class="text-white/60 ml-2">{{ drive_status.email }}</span>
+      </div>
+      <button onclick="disconnectDrive()" class="text-red-400 hover:text-red-300 text-sm px-3 py-1 rounded hover:bg-red-500/10 border border-red-500/30">Ngắt kết nối</button>
+    </div>
+    <div id="drive-status" class="text-sm mt-2"></div>
+    {% else %}
+    <button onclick="connectDrive()" id="drive-connect-btn" class="gradient-btn px-4 py-2 rounded text-sm">Kết nối Google Drive</button>
+    <div id="drive-connect-status" class="text-sm mt-2"></div>
+    <div class="text-xs text-white/40 mt-2">Trình duyệt sẽ mở trang Google để cấp quyền. Chỉ cần scope <code class="font-mono">drive.file</code> (chỉ quản lý file do app tạo).</div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+let driveAuthPoll = null;
+
+async function connectDrive() {
+  const btn = document.getElementById('drive-connect-btn');
+  const status = document.getElementById('drive-connect-status');
+  btn.disabled = true;
+  btn.textContent = 'Đang mở trình duyệt...';
+  status.textContent = '';
+  try {
+    const r = await fetch('/drive/connect', { method: 'POST' });
+    const data = await r.json();
+    if (r.ok) {
+      status.textContent = 'Đang chờ xác nhận từ Google... (kiểm tra trình duyệt)';
+      status.className = 'text-sm mt-2 text-yellow-400';
+      pollAuthResult();
+    } else {
+      status.textContent = data.detail || 'Lỗi';
+      status.className = 'text-sm mt-2 text-red-400';
+      btn.disabled = false;
+      btn.textContent = 'Kết nối Google Drive';
+    }
+  } catch (e) {
+    status.textContent = 'Lỗi kết nối';
+    status.className = 'text-sm mt-2 text-red-400';
+    btn.disabled = false;
+    btn.textContent = 'Kết nối Google Drive';
+  }
+}
+
+function pollAuthResult() {
+  if (driveAuthPoll) return;
+  driveAuthPoll = setInterval(async () => {
+    try {
+      const r = await fetch('/drive/auth-result');
+      const d = await r.json();
+      if (d.status === 'done') {
+        clearInterval(driveAuthPoll); driveAuthPoll = null;
+        setTimeout(() => location.reload(), 500);
+      } else if (d.status === 'failed') {
+        clearInterval(driveAuthPoll); driveAuthPoll = null;
+        const status = document.getElementById('drive-connect-status');
+        status.textContent = 'Lỗi: ' + (d.error || 'Unknown');
+        status.className = 'text-sm mt-2 text-red-400';
+        const btn = document.getElementById('drive-connect-btn');
+        btn.disabled = false;
+        btn.textContent = 'Kết nối Google Drive';
+      }
+    } catch (e) {}
+  }, 1500);
+}
+
+async function disconnectDrive() {
+  if (!confirm('Ngắt kết nối Google Drive?')) return;
+  const status = document.getElementById('drive-status');
+  try {
+    const r = await fetch('/drive/disconnect', { method: 'POST' });
+    if (r.ok) {
+      status.textContent = 'Đã ngắt kết nối.';
+      status.className = 'text-sm mt-2 text-yellow-400';
+      setTimeout(() => location.reload(), 800);
+    }
+  } catch (e) {
+    status.textContent = 'Lỗi kết nối';
+    status.className = 'text-sm mt-2 text-red-400';
+  }
+}
+
+async function uploadLogo() {
+  const form = document.getElementById('logo-upload-form');
+  const fd = new FormData(form);
+  const status = document.getElementById('logo-upload-status');
+  status.textContent = 'Uploading...';
+  status.className = 'text-sm mb-3 text-yellow-400';
+  try {
+    const r = await fetch('/settings/logos', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (r.ok && data.ok) {
+      status.textContent = '✓ Đã upload: ' + data.name;
+      status.className = 'text-sm mb-3 text-emerald-400';
+      form.reset();
+      setTimeout(() => location.reload(), 800);
+    } else {
+      status.textContent = '✗ ' + (data.detail || 'Upload failed');
+      status.className = 'text-sm mb-3 text-red-400';
+    }
+  } catch (e) {
+    status.textContent = '✗ Network error';
+    status.className = 'text-sm mb-3 text-red-400';
+  }
+}
+
+async function deleteLogo(id) {
+  if (!confirm('Xóa logo này?')) return;
+  try {
+    const r = await fetch('/settings/logos/' + id, { method: 'DELETE' });
+    if (r.ok) {
+      const el = document.getElementById('logo-item-' + id);
+      if (el) el.remove();
+      // Check if list is now empty
+      const list = document.getElementById('logo-list');
+      if (list && list.children.length === 0) {
+        list.innerHTML = '<div class="text-sm text-white/40 italic" id="logo-empty">Chưa có logo nào. Upload logo đầu tiên ở trên.</div>';
+      }
+    }
+  } catch (e) {}
+}
+
+async function testKey(provider) {
+  const form = document.getElementById('form-' + provider);
+  const fd = new FormData(form);
+  const statusEl = document.getElementById('status-' + provider);
+  statusEl.textContent = 'Testing...';
+  statusEl.className = 'text-sm mt-2 text-yellow-400';
+  try {
+    const r = await fetch('/settings/test', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) {
+      statusEl.textContent = '✓ Connection OK';
+      statusEl.className = 'text-sm mt-2 text-emerald-400';
+    } else {
+      statusEl.textContent = '✗ ' + data.message;
+      statusEl.className = 'text-sm mt-2 text-red-400';
+    }
+  } catch (e) {
+    statusEl.textContent = '✗ Network error';
+    statusEl.className = 'text-sm mt-2 text-red-400';
+  }
+}
+
+async function saveProvider(provider) {
+  const form = document.getElementById('form-' + provider);
+  const fd = new FormData(form);
+  const statusEl = document.getElementById('status-' + provider);
+  statusEl.textContent = 'Saving...';
+  statusEl.className = 'text-sm mt-2 text-yellow-400';
+  try {
+    const r = await fetch('/settings/save', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) {
+      statusEl.textContent = '✓ Saved' + (data.active ? ' (now active)' : '');
+      statusEl.className = 'text-sm mt-2 text-emerald-400';
+      if (data.active) setTimeout(() => location.reload(), 800);
+    } else {
+      statusEl.textContent = '✗ Save failed';
+      statusEl.className = 'text-sm mt-2 text-red-400';
+    }
+  } catch (e) {
+    statusEl.textContent = '✗ Network error';
+    statusEl.className = 'text-sm mt-2 text-red-400';
+  }
+}
+
+// Time estimate vs concurrency (rough, based on benchmarks)
+const TIME_ESTIMATES_PER_VIDEO_SEC = 300;  // ~5min per video sequential after Aggressive optimizations
+function updateTimeEstimate(n) {
+  const N = parseInt(n);
+  // Speedup curve: roughly N up to ~5, then diminishing returns
+  const speedup = N <= 5 ? N * 0.85 : 5 * 0.85 + (N - 5) * 0.3;
+  const totalSec = (10 * TIME_ESTIMATES_PER_VIDEO_SEC) / speedup;
+  const min = Math.round(totalSec / 60);
+  document.getElementById('time-estimate').textContent = `~${min} min`;
+}
+updateTimeEstimate({{ concurrent_jobs }});
+
+// Save concurrency to backend on change
+async function setConcurrentJobs(value) {
+  updateTimeEstimate(value);
+  const status = document.getElementById('cj-status');
+  status.textContent = 'Saving…';
+  status.className = 'text-xs mt-2 text-yellow-400';
+  try {
+    const fd = new FormData();
+    fd.append('value', value);
+    const r = await fetch('/settings/concurrent-jobs', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) {
+      status.textContent = `✓ Đã lưu: ${value} job song song`;
+      status.className = 'text-xs mt-2 text-emerald-300';
+      setTimeout(() => { status.textContent = ''; }, 2500);
+    } else {
+      status.textContent = '✗ Lỗi lưu setting';
+      status.className = 'text-xs mt-2 text-red-400';
+    }
+  } catch (e) {
+    status.textContent = '✗ Network error';
+    status.className = 'text-xs mt-2 text-red-400';
+  }
+}
+
+// Poll active jobs count every 3s for live display
+setInterval(async () => {
+  try {
+    const r = await fetch('/settings/active-jobs-count');
+    if (r.ok) {
+      const d = await r.json();
+      document.getElementById('active-jobs-count').textContent = d.active;
+    }
+  } catch (e) {}
+}, 3000);
+</script>
+{% endblock %}

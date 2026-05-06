@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% set show_nav = true %}
+{% block title %}History — Youtok{% endblock %}
+{% block content %}
+{% set g = summary.grand_total %}
+<div class="space-y-6">
+  <div class="flex items-end justify-between">
+    <h1 class="text-3xl font-bold">API Usage History</h1>
+    <div class="text-xs text-white/40">FX: 1 USD ≈ {{ "{:,.0f}".format(get_usd_vnd_rate()).replace(",", ".") }} ₫</div>
+  </div>
+
+  <!-- Date filter bar -->
+  <form method="get" action="/history" class="flex flex-wrap items-center gap-2 text-sm">
+    <span class="text-white/60">Lọc theo ngày:</span>
+    <input type="date" name="date_from" value="{{ date_from or '' }}"
+           class="glass rounded p-2 text-sm" max="{{ date_to or '' }}">
+    <span class="text-white/40">→</span>
+    <input type="date" name="date_to" value="{{ date_to or '' }}"
+           class="glass rounded p-2 text-sm" min="{{ date_from or '' }}">
+    <button type="submit" class="glass px-3 py-1.5 rounded hover:bg-white/10">Apply</button>
+    <div class="flex gap-1 ml-2">
+      <button type="button" onclick="setHistRange('today')" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">Today</button>
+      <button type="button" onclick="setHistRange('7d')" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">7d</button>
+      <button type="button" onclick="setHistRange('30d')" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">30d</button>
+      <button type="button" onclick="setHistRange('month')" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">This month</button>
+      <button type="button" onclick="setHistRange('year')" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">This year</button>
+    </div>
+    {% if date_from or date_to %}
+    <a href="/history" class="text-white/60 hover:text-white text-xs ml-2">× Clear</a>
+    <span class="ml-auto text-xs text-white/50">
+      Range: <span class="text-white/80">{{ date_from or '...' }}</span> → <span class="text-white/80">{{ date_to or '...' }}</span>
+    </span>
+    {% endif %}
+  </form>
+
+  <script>
+    function setHistRange(preset) {
+      const today = new Date();
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      let from = '', to = fmt(today);
+      if (preset === 'today') from = fmt(today);
+      else if (preset === '7d') { const d = new Date(today); d.setDate(d.getDate() - 6); from = fmt(d); }
+      else if (preset === '30d') { const d = new Date(today); d.setDate(d.getDate() - 29); from = fmt(d); }
+      else if (preset === 'month') { from = fmt(new Date(today.getFullYear(), today.getMonth(), 1)); }
+      else if (preset === 'year') { from = fmt(new Date(today.getFullYear(), 0, 1)); }
+      const url = new URL(location.href);
+      url.pathname = '/history';
+      url.searchParams.set('date_from', from);
+      url.searchParams.set('date_to', to);
+      location.href = url.toString();
+    }
+  </script>
+
+  <!-- Grand total -->
+  <div class="glass rounded-2xl p-6">
+    <div class="text-white/60 text-sm mb-2">Total spend across all providers</div>
+    <div class="flex items-baseline gap-4 flex-wrap">
+      <div class="text-4xl font-bold text-emerald-300 font-mono">${{ "%.4f"|format(g.cost) }}</div>
+      <div class="text-2xl text-emerald-300/70 font-mono">{{ fmt_vnd(g.cost) }}</div>
+      <div class="text-sm text-white/50 ml-auto">
+        {{ "{:,}".format(g.calls) }} calls ·
+        {{ "{:,}".format(g.in_tokens) }} in tokens ·
+        {{ "{:,}".format(g.out_tokens) }} out tokens
+      </div>
+    </div>
+  </div>
+
+  <!-- Per-provider cards -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    {% for pid in ['anthropic', 'openai', 'google'] %}
+    {% set p = summary.providers.get(pid) %}
+    <div class="glass rounded-2xl p-5 {% if not p %}opacity-60{% endif %}">
+      <div class="flex items-center justify-between mb-3">
+        <div class="font-semibold">{{ provider_defaults[pid]['name'] }}</div>
+        {% if p %}
+        <span class="text-xs gradient-btn px-2 py-1 rounded">USED</span>
+        {% else %}
+        <span class="text-xs text-white/40">no calls</span>
+        {% endif %}
+      </div>
+      {% if p %}
+      <div class="text-3xl font-bold font-mono text-emerald-300">${{ "%.4f"|format(p.cost) }}</div>
+      <div class="text-lg font-mono text-emerald-300/70 mb-3">{{ fmt_vnd(p.cost) }}</div>
+      <div class="text-xs text-white/60 space-y-1">
+        <div>{{ "{:,}".format(p.calls) }} calls</div>
+        <div>{{ "{:,}".format(p.in_tokens) }} input tokens</div>
+        <div>{{ "{:,}".format(p.out_tokens) }} output tokens</div>
+      </div>
+      {% else %}
+      <div class="text-3xl font-bold font-mono text-white/30">$0.0000</div>
+      <div class="text-lg font-mono text-white/30 mb-3">0 ₫</div>
+      <div class="text-xs text-white/40">Provider chưa được sử dụng</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Per-model breakdown per provider -->
+  {% for pid, p in summary.providers.items() %}
+  <div class="glass rounded-2xl p-6">
+    <h2 class="text-xl font-bold mb-4">{{ provider_defaults[pid]['name'] }} — by model</h2>
+    <table class="w-full text-left text-sm">
+      <thead>
+        <tr class="text-white/60 border-b border-white/10">
+          <th class="py-2">Model</th>
+          <th class="text-right">Calls</th>
+          <th class="text-right">Input tokens</th>
+          <th class="text-right">Output tokens</th>
+          <th class="text-right">Cost (USD)</th>
+          <th class="text-right">Cost (VND)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for model, m in (p.by_model.items() | list | sort(attribute='1.cost', reverse=True)) %}
+        <tr class="border-b border-white/5 hover:bg-white/5">
+          <td class="py-2 font-mono">{{ model }}</td>
+          <td class="text-right">{{ "{:,}".format(m.calls) }}</td>
+          <td class="text-right text-white/70">{{ "{:,}".format(m.in_tokens) }}</td>
+          <td class="text-right text-white/70">{{ "{:,}".format(m.out_tokens) }}</td>
+          <td class="text-right font-mono text-emerald-300">${{ "%.4f"|format(m.cost) }}</td>
+          <td class="text-right font-mono text-emerald-300/70">{{ fmt_vnd(m.cost) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="border-t-2 border-white/20 bg-white/5">
+          <td class="py-2 font-semibold">Total</td>
+          <td class="text-right font-semibold">{{ "{:,}".format(p.calls) }}</td>
+          <td class="text-right font-semibold text-white/80">{{ "{:,}".format(p.in_tokens) }}</td>
+          <td class="text-right font-semibold text-white/80">{{ "{:,}".format(p.out_tokens) }}</td>
+          <td class="text-right font-mono font-bold text-emerald-300">${{ "%.4f"|format(p.cost) }}</td>
+          <td class="text-right font-mono font-bold text-emerald-300/80">{{ fmt_vnd(p.cost) }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% endfor %}
+
+  <!-- Daily timeline (across all providers) -->
+  {% if summary.by_day_all %}
+  <div class="glass rounded-2xl p-6">
+    <h2 class="text-xl font-bold mb-4">Daily timeline (all providers)</h2>
+    <table class="w-full text-left text-sm">
+      <thead>
+        <tr class="text-white/60 border-b border-white/10">
+          <th class="py-2">Date</th>
+          <th class="text-right">Calls</th>
+          <th class="text-right">Cost (USD)</th>
+          <th class="text-right">Cost (VND)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in summary.by_day_all %}
+        <tr class="border-b border-white/5 hover:bg-white/5">
+          <td class="py-2 font-mono">{{ d.date }}</td>
+          <td class="text-right">{{ "{:,}".format(d.calls) }}</td>
+          <td class="text-right font-mono text-emerald-300">${{ "%.4f"|format(d.cost) }}</td>
+          <td class="text-right font-mono text-emerald-300/70">{{ fmt_vnd(d.cost) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if not summary.providers %}
+  <div class="glass rounded-2xl p-12 text-center text-white/50">
+    Chưa có call API nào được ghi log. Submit job đầu tiên để bắt đầu tracking.
+  </div>
+  {% endif %}
+
+  <div class="text-xs text-white/40 leading-relaxed">
+    <strong class="text-white/60">Source:</strong> dữ liệu đọc từ <code class="font-mono">data/logs/llm-cost.jsonl</code> (mỗi LLM call append 1 record).
+    Cost được tính theo bảng giá <code class="font-mono">PRICING</code> trong <code class="font-mono">cost_tracker.py</code> (May 2026).
+    Đây là <strong>chi phí spend từ máy này</strong>, không phải số dư tài khoản vendor — số dư thật xem ở
+    <a href="/settings" class="text-accent-pink hover:underline">Settings → Billing dashboard</a>.
+  </div>
+</div>
+{% endblock %}

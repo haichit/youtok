@@ -9,26 +9,84 @@ from youtok.core.transcriber import Transcript
 _shot_cache: dict[str, list[float]] = {}
 
 
+def _detect_keyframes(video_path: Path) -> list[float]:
+    """Fast: extract video keyframe (I-frame) timestamps via ffprobe (~1s for 15min video).
+    Keyframes often align with scene cuts (encoders insert keyframes on big content change)."""
+    import subprocess
+    from youtok.config import settings as _s
+    try:
+        r = subprocess.run(
+            [
+                str(_s.ffprobe), "-v", "error",
+                "-select_streams", "v:0",
+                "-skip_frame", "nokey",
+                "-show_frames", "-show_entries", "frame=pts_time",
+                "-of", "csv=p=0",
+                str(video_path),
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode != 0:
+            logger.warning(f"ffprobe keyframes failed: {r.stderr[:200]}")
+            return []
+        ts = []
+        for line in r.stdout.splitlines():
+            line = line.strip().rstrip(",")
+            if not line:
+                continue
+            try:
+                ts.append(float(line))
+            except ValueError:
+                continue
+        return sorted(set(ts))
+    except Exception as e:
+        logger.warning(f"ffprobe keyframes error: {e}")
+        return []
+
+
 def detect_shots(video_path: Path) -> list[float]:
     key = str(video_path)
     if key in _shot_cache:
         return _shot_cache[key]
 
+    # Persistent disk cache check
+    from youtok.core.cache import load_shots, save_shots
+    cached = load_shots(video_path)
+    if cached is not None:
+        _shot_cache[key] = cached
+        return cached
+
+    # Two-source shot detection:
+    # 1) PySceneDetect ContentDetector — accurate but slow
+    # 2) ffprobe keyframes — fast additional candidates (encoder-inserted at content shifts)
+    # Combined and deduped within ±0.5s tolerance.
+    boundaries: list[float] = []
     try:
         from scenedetect import detect, ContentDetector
         scene_list = detect(str(video_path), ContentDetector(threshold=27))
-        boundaries = []
         for start, end in scene_list:
             boundaries.append(start.get_seconds())
             boundaries.append(end.get_seconds())
-        boundaries = sorted(set(boundaries))
-        logger.info(f"Detected {len(boundaries)} shot boundaries")
-        _shot_cache[key] = boundaries
-        return boundaries
+        logger.info(f"PySceneDetect: {len(set(boundaries))} boundaries")
     except Exception as e:
-        logger.warning(f"Shot detection failed, skipping: {e}")
-        _shot_cache[key] = []
-        return []
+        logger.warning(f"PySceneDetect failed (continuing with keyframes only): {e}")
+
+    keyframes = _detect_keyframes(video_path)
+    if keyframes:
+        boundaries.extend(keyframes)
+        logger.info(f"ffprobe keyframes: {len(keyframes)} boundaries")
+
+    # Dedupe with ±0.5s tolerance
+    boundaries = sorted(set(boundaries))
+    deduped: list[float] = []
+    for b in boundaries:
+        if not deduped or abs(b - deduped[-1]) > 0.5:
+            deduped.append(b)
+
+    logger.info(f"Total combined shot boundaries: {len(deduped)}")
+    _shot_cache[key] = deduped
+    save_shots(video_path, deduped)
+    return deduped
 
 
 def _find_pause(

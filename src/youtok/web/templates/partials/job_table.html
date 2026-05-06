@@ -1,38 +1,133 @@
+{% set STATUS_VN = {
+  'pending': 'Chờ xử lý',
+  'downloading': 'Đang tải video',
+  'transcribing': 'Đang chuyển ngữ (transcribe)',
+  'segmenting': 'Đang phân tích chủ đề',
+  'snapping': 'Đang căn chỉnh điểm cắt',
+  'cutting': 'Đang xuất video clips',
+  'cleanup': 'Đang dọn dẹp',
+  'done': 'Hoàn tất',
+  'failed': 'Thất bại',
+} %}
 <table class="w-full text-left">
   <thead>
     <tr class="text-white/60 text-sm border-b border-white/10">
-      <th class="py-3">Title</th>
-      <th>Status</th>
-      <th>Progress</th>
+      <th class="py-3 w-8">
+        <input type="checkbox" onclick="toggleAllJobs(this)" class="job-select-all align-middle">
+      </th>
+      <th>Title</th>
+      <th class="min-w-[200px]">Trạng thái</th>
+      <th class="min-w-[180px]">Tiến trình</th>
       <th>Clips</th>
+      <th>Cost</th>
       <th>Created</th>
       <th></th>
     </tr>
   </thead>
   <tbody>
     {% for job in jobs %}
+    {% set is_running = job.status not in ['done', 'failed', 'pending'] %}
     <tr class="border-b border-white/5 hover:bg-white/5 transition">
-      <td class="py-3"><a href="/jobs/{{ job.id }}" class="hover:text-accent-pink transition">{{ job.video_title or job.source_url }}</a></td>
-      <td><span class="px-2 py-1 rounded text-xs
-        {% if job.status == 'done' %}bg-emerald-500/20 text-emerald-300
-        {% elif job.status == 'failed' %}bg-red-500/20 text-red-300
-        {% elif job.status == 'pending' %}bg-white/10
-        {% else %}bg-accent-pink/20 text-accent-pink{% endif %}
-      ">{{ job.status }}</span></td>
+      <td class="py-3">
+        <input type="checkbox" class="job-checkbox align-middle" value="{{ job.id }}" onclick="updateJobBulkBar()">
+      </td>
+      <td><a href="/jobs/{{ job.id }}" class="hover:text-accent-pink transition">{{ job.video_title or job.source_url }}</a></td>
+      <td class="py-2">
+        <div class="flex items-center gap-2">
+          {% if is_running %}
+            <span class="inline-block w-2 h-2 rounded-full bg-accent-pink animate-pulse"></span>
+          {% endif %}
+          <span class="px-2 py-1 rounded text-xs
+            {% if job.status == 'done' %}bg-emerald-500/20 text-emerald-300
+            {% elif job.status == 'failed' %}bg-red-500/20 text-red-300
+            {% elif job.status == 'pending' %}bg-white/10 text-white/60
+            {% else %}bg-accent-pink/20 text-accent-pink{% endif %}">
+            {{ STATUS_VN.get(job.status, job.status) }}
+          </span>
+        </div>
+        {% if job.current_step and is_running %}
+        <div class="text-xs text-white/50 mt-1 truncate max-w-[260px]" title="{{ job.current_step }}">
+          → {{ job.current_step }}
+        </div>
+        {% elif job.status == 'failed' and job.error_message %}
+        <div class="text-xs text-red-300/70 mt-1 truncate max-w-[260px]" title="{{ job.error_message }}">
+          {{ job.error_message }}
+        </div>
+        {% endif %}
+      </td>
       <td>
-        <div class="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
-          <div class="h-full gradient-btn transition-all" style="width: {{ job.progress_pct }}%"></div>
+        <div class="relative w-40 h-4 bg-white/10 rounded-full overflow-hidden">
+          <div class="h-full gradient-btn transition-all duration-500"
+               style="width: {{ job.progress_pct }}%"></div>
+          <div class="absolute inset-0 flex items-center justify-center text-[10px] font-mono font-semibold text-white drop-shadow">
+            {{ job.progress_pct }}%
+          </div>
         </div>
       </td>
       <td>{{ job.clips_count }}</td>
+      <td class="text-sm font-mono">
+        {% set jc = costs.get(job.id, 0) if costs else 0 %}
+        <div class="text-white/70">${{ "%.4f"|format(jc) }}</div>
+        <div class="text-emerald-300/70 text-xs">{{ fmt_vnd(jc) }}</div>
+      </td>
       <td class="text-white/60 text-sm">{{ job.created_at.strftime('%m-%d %H:%M') }}</td>
-      <td><a href="/jobs/{{ job.id }}" class="text-accent-pink hover:underline text-sm">View</a></td>
+      <td class="text-sm whitespace-nowrap">
+        <a href="/jobs/{{ job.id }}" class="text-accent-pink hover:underline">View</a>
+        {% if job.status == 'done' %}
+        <a href="/jobs/{{ job.id }}/download" title="Download all clips as .zip"
+           class="text-emerald-300 hover:text-emerald-200 ml-2">⬇</a>
+        {% endif %}
+        <button onclick="rerunJob({{ job.id }}, event)" title="Re-run with same URL/output"
+                class="text-white/60 hover:text-accent-pink ml-2">↻</button>
+        <button onclick="deleteJob({{ job.id }}, event)" title="Delete this job"
+                class="text-white/60 hover:text-red-400 ml-1">✕</button>
+      </td>
     </tr>
     {% endfor %}
     {% if not jobs %}
     <tr>
-      <td colspan="6" class="py-8 text-center text-white/40">No jobs yet. Create one!</td>
+      <td colspan="8" class="py-8 text-center text-white/40">No jobs yet. Create one!</td>
     </tr>
     {% endif %}
   </tbody>
+  {% if jobs and total_cost is defined %}
+  <tfoot>
+    <tr class="border-t-2 border-white/20 bg-white/5">
+      <td class="py-3" colspan="5"></td>
+      <td class="py-3 font-bold text-sm">
+        <div class="text-xs text-white/60 font-normal">TOTAL ({{ total }} job{% if total != 1 %}s{% endif %})</div>
+        <div class="text-emerald-300 font-mono">${{ "%.4f"|format(total_cost) }}</div>
+        <div class="text-emerald-300/70 font-mono text-xs">{{ fmt_vnd(total_cost) }}</div>
+      </td>
+      <td colspan="2"></td>
+    </tr>
+  </tfoot>
+  {% endif %}
 </table>
+
+{% if pages and pages > 1 %}
+<div class="flex items-center justify-between mt-4 text-sm">
+  <div class="text-white/60">
+    Page {{ page }}/{{ pages }} · {{ total }} total
+  </div>
+  <div class="flex gap-1">
+    {% set base = '/dashboard?' %}
+    {% if active_filter %}{% set base = base ~ 'filter=' ~ active_filter ~ '&' %}{% endif %}
+    {% if date_from %}{% set base = base ~ 'date_from=' ~ date_from ~ '&' %}{% endif %}
+    {% if date_to %}{% set base = base ~ 'date_to=' ~ date_to ~ '&' %}{% endif %}
+    {% if page > 1 %}
+    <a href="{{ base }}page={{ page - 1 }}" class="glass px-3 py-1 rounded hover:bg-white/10">‹ Prev</a>
+    {% endif %}
+    {% for p in range(1, pages + 1) %}
+      {% if p == page %}
+      <span class="gradient-btn px-3 py-1 rounded font-semibold">{{ p }}</span>
+      {% else %}
+      <a href="{{ base }}page={{ p }}" class="glass px-3 py-1 rounded hover:bg-white/10">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+    {% if page < pages %}
+    <a href="{{ base }}page={{ page + 1 }}" class="glass px-3 py-1 rounded hover:bg-white/10">Next ›</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

@@ -66,9 +66,15 @@ def stage_b_batch(
             tool_use = next(b for b in msg.content if b.type == "tool_use")
             results[custom_id] = tool_use.input
             log_call(
-                stage=f"stage_b_batch",
+                stage="stage_b_batch",
                 model=model,
-                usage=msg.usage,
+                provider="anthropic",
+                usage_dict={
+                    "input_tokens": msg.usage.input_tokens,
+                    "output_tokens": msg.usage.output_tokens,
+                    "cache_read_tokens": getattr(msg.usage, "cache_read_input_tokens", 0) or 0,
+                    "cache_creation_tokens": getattr(msg.usage, "cache_creation_input_tokens", 0) or 0,
+                },
                 duration_ms=0,
                 prompt_preview="",
                 response_preview="",

@@ -3,9 +3,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
-from youtok.api.routes import activate, channels, jobs, pages
+from loguru import logger
+
+from youtok.api.routes import activate, channels, drive, jobs, pages, settings, update
 from youtok.api.ws import progress_watcher, register_ws
 from youtok.db.base import Base, engine
 
@@ -13,10 +14,27 @@ from youtok.db.base import Base, engine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _migrate_env_to_db()
     _seed_mock_data()
     task = asyncio.create_task(progress_watcher())
+    from youtok.core.updater import start_update_scheduler, install_on_quit
+    start_update_scheduler()
     yield
     task.cancel()
+    install_on_quit()
+
+
+def _migrate_env_to_db():
+    from youtok.config import settings as app_settings
+    from youtok.db.base import SessionLocal
+    from youtok.db.crud import get_api_key, upsert_api_key, set_setting
+
+    if app_settings.anthropic_api_key:
+        with SessionLocal() as db:
+            if not get_api_key(db, "anthropic"):
+                upsert_api_key(db, "anthropic", app_settings.anthropic_api_key)
+                set_setting(db, "active_provider", "anthropic")
+                logger.info("Migrated ANTHROPIC_API_KEY from .env to DB")
 
 
 def _seed_mock_data():
@@ -91,6 +109,9 @@ def create_app() -> FastAPI:
     app.include_router(activate.router, prefix="/activate")
     app.include_router(jobs.router, prefix="/jobs")
     app.include_router(channels.router, prefix="/channels")
+    app.include_router(settings.router, prefix="/settings")
+    app.include_router(drive.router, prefix="/drive")
+    app.include_router(update.router, prefix="/update")
     register_ws(app)
 
     return app

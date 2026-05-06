@@ -1,12 +1,63 @@
 <div class="grid grid-cols-2 gap-4">
   {% for clip in clips %}
-  <div class="glass rounded-xl p-4">
-    <div class="text-xs text-accent-pink mb-1">Part {{ clip.part_number }}/{{ clip.total_parts }}</div>
+  <div class="glass rounded-xl p-4 flex flex-col">
+    <div class="flex items-start justify-between mb-1 gap-2">
+      <div class="text-xs text-accent-pink whitespace-nowrap">Part {{ clip.part_number }}/{{ clip.total_parts }}</div>
+      <div class="flex items-center gap-2">
+        <div class="text-right whitespace-nowrap" title="Estimated avg cost per clip (job total / clips count)">
+          <div class="text-xs text-emerald-300/80 font-mono leading-tight">${{ "%.4f"|format(per_clip_cost or 0) }}</div>
+          <div class="text-[10px] text-emerald-300/60 font-mono leading-tight">{{ fmt_vnd(per_clip_cost or 0) }}</div>
+        </div>
+        <a href="/jobs/{{ clip.job_id }}/download/{{ clip.part_number }}"
+           title="Download this clip" download
+           class="text-xs glass px-2 py-1 rounded hover:bg-white/10 transition whitespace-nowrap text-emerald-300">⬇ Download</a>
+        <button onclick="openFolder('{{ clip.output_path|e }}')" title="Reveal in Finder"
+                class="text-xs glass px-2 py-1 rounded hover:bg-white/10 transition whitespace-nowrap">📁 Open</button>
+      </div>
+    </div>
     <div class="font-semibold mb-1">{{ clip.topic_name }}</div>
-    <div class="text-xs text-white/60">{{ "%.1f"|format(clip.duration_sec) }}s · coherence {{ "%.1f"|format(clip.coherence_score) }}/5</div>
-    <div class="text-xs text-white/40 mt-2 font-mono break-all">{{ clip.output_path }}</div>
+    <div class="text-xs text-white/60 mb-3">{{ "%.1f"|format(clip.duration_sec) }}s · coherence {{ "%.1f"|format(clip.coherence_score) }}/5</div>
+
+    <div class="flex justify-center bg-black rounded-lg overflow-hidden">
+      <video controls preload="metadata"
+             class="block max-h-[520px] w-auto h-auto"
+             style="object-fit: contain;"
+             src="/fs/file?path={{ clip.output_path|urlencode }}"></video>
+    </div>
+
+    <div class="text-xs text-white/40 mt-2 font-mono break-all">
+      {{ clip.output_path }}
+      {% if drive_files is defined and drive_files %}
+        {% set clip_filename = clip.output_path.split('/')[-1] %}
+        {% if clip_filename in drive_files %}
+        <a href="{{ drive_files[clip_filename] }}" target="_blank" rel="noopener"
+           class="ml-1 text-accent-pink hover:underline font-sans">Google Drive ↗</a>
+        {% endif %}
+      {% endif %}
+    </div>
   </div>
   {% else %}
   <div class="text-white/60 text-sm col-span-2">No clips yet — pipeline still running.</div>
   {% endfor %}
 </div>
+
+{% if clips and total_cost is defined %}
+<div class="mt-4 text-xs text-white/50 text-right">
+  Job total LLM cost:
+  <span class="font-mono text-emerald-300/80">${{ "%.4f"|format(total_cost) }}</span>
+  <span class="font-mono text-emerald-300/60">({{ fmt_vnd(total_cost) }})</span>
+  · per-clip avg:
+  <span class="font-mono text-emerald-300/80">${{ "%.4f"|format(per_clip_cost) }}</span>
+  <span class="font-mono text-emerald-300/60">({{ fmt_vnd(per_clip_cost) }})</span>
+  <div class="text-white/40 mt-1">FX: 1 USD ≈ {{ "{:,.0f}".format(get_usd_vnd_rate()).replace(",", ".") }} ₫ (cached daily)</div>
+</div>
+{% endif %}
+
+<script>
+async function openFolder(filePath) {
+  const folder = filePath.replace(/\/[^\/]+$/, '');
+  const fd = new FormData();
+  fd.append('path', folder);
+  try { await fetch('/fs/open', {method:'POST', body: fd}); } catch(e) {}
+}
+</script>

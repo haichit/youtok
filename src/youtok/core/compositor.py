@@ -1,3 +1,4 @@
+import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -7,6 +8,31 @@ from pydantic import BaseModel
 
 from youtok.config import settings
 from youtok.core.transcriber import WordToken
+
+
+def _supports_videotoolbox() -> bool:
+    """Check if h264_videotoolbox encoder is available (Mac with hardware H.264)."""
+    if platform.system() != "Darwin":
+        return False
+    try:
+        r = subprocess.run(
+            [str(settings.ffmpeg), "-hide_banner", "-encoders"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "h264_videotoolbox" in r.stdout
+    except Exception:
+        return False
+
+
+_VIDEOTOOLBOX_AVAILABLE: bool | None = None
+
+
+def has_videotoolbox() -> bool:
+    global _VIDEOTOOLBOX_AVAILABLE
+    if _VIDEOTOOLBOX_AVAILABLE is None:
+        _VIDEOTOOLBOX_AVAILABLE = _supports_videotoolbox()
+        logger.info(f"h264_videotoolbox available: {_VIDEOTOOLBOX_AVAILABLE}")
+    return _VIDEOTOOLBOX_AVAILABLE
 
 FONT_FILE = "NotoSans-Bold.ttf"
 FONT_NAME = "Noto Sans Bold"
@@ -136,6 +162,8 @@ def render_clip(
     ass_path: Path,
     title_lines: list[str],
     output_path: Path,
+    logo_top_path: Path | None = None,
+    logo_bottom_path: Path | None = None,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -160,14 +188,6 @@ def render_clip(
             f"x=(w-text_w)/2:y={y}"
         )
 
-    vf_parts = [
-        "scale=1080:1080:force_original_aspect_ratio=decrease",
-        "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
-    ]
-    vf_parts.extend(drawtext_filters)
-    vf_parts.append(f"subtitles=f={ass_path.name}:fontsdir=.")
-    vf = ",".join(vf_parts)
-
     source_resolved = source_mp4.resolve()
     work_resolved = work_dir.resolve()
     if source_resolved.parent == work_resolved:
@@ -178,14 +198,78 @@ def render_clip(
             source_local.symlink_to(source_resolved)
         source_arg = source_mp4.name
 
+    # Copy logo files to workdir if provided
+    logo_top_local = None
+    logo_bot_local = None
+    if logo_top_path and logo_top_path.exists():
+        logo_top_local = work_dir / f"logo_top.png"
+        if not logo_top_local.exists():
+            shutil.copy2(logo_top_path, logo_top_local)
+    if logo_bottom_path and logo_bottom_path.exists():
+        logo_bot_local = work_dir / f"logo_bot.png"
+        if not logo_bot_local.exists():
+            shutil.copy2(logo_bottom_path, logo_bot_local)
+
+    has_logos = logo_top_local or logo_bot_local
+    if has_logos:
+        # filter_complex: base video chain → overlay logo(s) at fixed positions
+        # Top logo: 1080x150 at y=0. Bottom logo: 1080x150 at y=1770.
+        base_chain = [
+            "scale=1080:1080:force_original_aspect_ratio=decrease",
+            "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+        ]
+        base_chain.extend(drawtext_filters)
+        base_chain.append(f"subtitles=f={ass_path.name}:fontsdir=.")
+
+        fc_parts = ["[0:v]" + ",".join(base_chain) + "[base]"]
+        extra_inputs = []
+        input_idx = 1
+        current_label = "base"
+
+        if logo_top_local:
+            extra_inputs.extend(["-i", logo_top_local.name])
+            next_label = "with_top" if logo_bot_local else "vout"
+            fc_parts.append(f"[{current_label}][{input_idx}:v]overlay=0:0[{next_label}]")
+            current_label = next_label
+            input_idx += 1
+
+        if logo_bot_local:
+            extra_inputs.extend(["-i", logo_bot_local.name])
+            fc_parts.append(f"[{current_label}][{input_idx}:v]overlay=0:1770[vout]")
+
+        filter_complex = ";".join(fc_parts)
+        filter_args = ["-filter_complex", filter_complex, "-map", "[vout]", "-map", "0:a?"]
+    else:
+        vf_parts = [
+            "scale=1080:1080:force_original_aspect_ratio=decrease",
+            "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+        ]
+        vf_parts.extend(drawtext_filters)
+        vf_parts.append(f"subtitles=f={ass_path.name}:fontsdir=.")
+        vf = ",".join(vf_parts)
+        filter_args = ["-vf", vf]
+        extra_inputs = []
+
+    if has_videotoolbox():
+        video_codec_args = ["-c:v", "h264_videotoolbox", "-q:v", "55", "-realtime", "0"]
+    else:
+        video_codec_args = ["-c:v", "libx264", "-preset", "medium", "-crf", "18"]
+
+    audio_args = [
+        "-c:a", "aac", "-b:a", "128k",
+        "-af", "aresample=async=1:first_pts=0",
+    ]
+
     cmd = [
         str(settings.ffmpeg), "-y",
         "-ss", str(start), "-to", str(end),
         "-i", source_arg,
-        "-vf", vf,
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-        "-c:a", "aac", "-b:a", "128k",
+        *extra_inputs,
+        *filter_args,
+        *video_codec_args,
+        *audio_args,
         "-movflags", "+faststart",
+        "-threads", "0",
         str(output_path.resolve()),
     ]
 
@@ -199,3 +283,42 @@ def render_clip(
         logger.error(f"ffmpeg stdout (last 500 chars):\n{result.stdout[-500:]}")
         print(f"FFMPEG STDERR:\n{result.stderr}", flush=True)
         result.check_returncode()
+
+
+def render_clips_parallel(
+    jobs: list[dict],
+    max_workers: int | None = None,
+    progress_callback=None,
+) -> None:
+    """Render multiple clips in parallel.
+
+    Each job dict: {source_mp4, start, end, ass_path, title_lines, output_path}
+    Uses ThreadPoolExecutor — ffmpeg is subprocess (releases GIL automatically).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import os
+
+    if not jobs:
+        return
+
+    if max_workers is None:
+        # Mac M-series: 2-3 parallel ffmpeg saturate videotoolbox HW encoder + CPU filters
+        # Software libx264: scale by core count, but cap at 3 to avoid thrashing
+        cpu = os.cpu_count() or 4
+        max_workers = min(3, cpu, len(jobs))
+
+    logger.info(f"Rendering {len(jobs)} clips in parallel (workers={max_workers})")
+
+    completed = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(render_clip, **job): i for i, job in enumerate(jobs)}
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                future.result()
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, len(jobs), idx)
+            except Exception as e:
+                logger.exception(f"Clip {idx} render failed: {e}")
+                raise

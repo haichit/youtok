@@ -1,0 +1,48 @@
+name: Build & Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[cpu]"
+          pip install pyinstaller packaging
+
+      - name: Download ffmpeg
+        run: |
+          curl -L -o ffmpeg.zip https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip
+          7z x ffmpeg.zip -offmpeg_tmp
+          mkdir -p vendor/ffmpeg
+          cp ffmpeg_tmp/ffmpeg-7.1-essentials_build/bin/ffmpeg.exe vendor/ffmpeg/
+          cp ffmpeg_tmp/ffmpeg-7.1-essentials_build/bin/ffprobe.exe vendor/ffmpeg/
+
+      - name: Build exe with PyInstaller
+        run: pyinstaller youtok.spec --noconfirm
+
+      - name: Create release archive
+        run: |
+          cd dist
+          7z a ../youtok-windows-x64.zip youtok/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            youtok-windows-x64.zip
+            dist/youtok/youtok.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

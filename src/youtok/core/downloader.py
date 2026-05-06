@@ -26,9 +26,23 @@ def _check_disk_space(path: Path, min_bytes: int = 5 * 1024**3) -> None:
         )
 
 
+def _find_cached(video_id: str, work_dir: Path) -> tuple[Path, Path] | None:
+    """Search sibling workdirs for existing mp4+wav of same video."""
+    parent = work_dir.parent
+    if not parent.exists():
+        return None
+    for sibling in parent.iterdir():
+        if sibling == work_dir or not sibling.is_dir():
+            continue
+        mp4 = sibling / f"{video_id}.mp4"
+        wav = sibling / f"{video_id}.wav"
+        if mp4.exists() and wav.exists():
+            return mp4, wav
+    return None
+
+
 def download_video(url: str, work_dir: Path) -> DownloadResult:
     work_dir.mkdir(parents=True, exist_ok=True)
-    _check_disk_space(work_dir)
 
     meta = subprocess.run(
         [str(settings.ytdlp), "--dump-json", "--no-playlist", url],
@@ -40,6 +54,34 @@ def download_video(url: str, work_dir: Path) -> DownloadResult:
     duration = float(info.get("duration", 0))
     channel = info.get("channel")
 
+    video_path = work_dir / f"{video_id}.mp4"
+    audio_path = work_dir / f"{video_id}.wav"
+
+    if video_path.exists() and audio_path.exists():
+        return DownloadResult(
+            video_path=video_path,
+            audio_path=audio_path,
+            title=title,
+            video_id=video_id,
+            duration_sec=duration,
+            channel_name=channel,
+        )
+
+    cached = _find_cached(video_id, work_dir)
+    if cached:
+        shutil.copy2(cached[0], video_path)
+        shutil.copy2(cached[1], audio_path)
+        return DownloadResult(
+            video_path=video_path,
+            audio_path=audio_path,
+            title=title,
+            video_id=video_id,
+            duration_sec=duration,
+            channel_name=channel,
+        )
+
+    _check_disk_space(work_dir)
+
     output_template = str(work_dir / f"{video_id}.%(ext)s")
     subprocess.run([
         str(settings.ytdlp),
@@ -49,9 +91,6 @@ def download_video(url: str, work_dir: Path) -> DownloadResult:
         "--no-playlist",
         url,
     ], check=True)
-
-    video_path = work_dir / f"{video_id}.mp4"
-    audio_path = work_dir / f"{video_id}.wav"
 
     subprocess.run([
         str(settings.ffmpeg), "-y",

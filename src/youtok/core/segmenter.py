@@ -9,9 +9,11 @@ from youtok.core.transcriber import Transcript
 from youtok.llm.client import call_with_tool
 from youtok.llm.prompts import (
     STAGE_A_TOOL,
+    STAGE_B_BATCH_TOOL,
     STAGE_B_TOOL,
     build_stage_a,
     build_stage_b,
+    build_stage_b_batch,
 )
 from youtok.llm.schemas import StageAOutput, StageBOutput, SubTopic
 
@@ -349,6 +351,61 @@ def enforce_min_duration(clips: list[ClipPlan], transcript: Transcript) -> list[
     return clips
 
 
+def _validate_leaves_single_call(
+    transcript: Transcript,
+    leaves: list[SubTopic],
+    job_id: int | None,
+) -> dict[str, StageBOutput] | None:
+    """Validate ALL leaves in 1 LLM call (gộp 1 call). Returns dict by start_sentence or None on failure."""
+    if not leaves:
+        return {}
+    try:
+        items = [
+            {"name": leaf.name, "parent": leaf.parent,
+             "start_id": leaf.start_sentence, "end_id": leaf.end_sentence}
+            for leaf in leaves
+        ]
+        prompt = build_stage_b_batch(transcript, items)
+        raw = call_with_tool(
+            prompt, STAGE_B_BATCH_TOOL, tier="haiku",
+            stage="stage_b_single_call", job_id=job_id,
+            max_tokens=8000,
+        )
+        validations = raw.get("validations") or []
+        if not validations:
+            logger.warning("Single-call Stage B returned no validations, fallback to per-leaf")
+            return None
+
+        out: dict[str, StageBOutput] = {}
+        for v in validations:
+            idx = v.get("topic_index")
+            if idx is None or idx < 0 or idx >= len(leaves):
+                continue
+            leaf = leaves[idx]
+            try:
+                # Validate against StageBOutput schema (strip topic_index field)
+                output = StageBOutput.model_validate({
+                    k: v[k] for k in ("coherence_score", "start_adjust", "end_adjust", "internal_break", "notes")
+                    if k in v
+                })
+                out[leaf.start_sentence] = output
+            except Exception as e:
+                logger.warning(f"Stage B single-call validation parse fail for topic {idx}: {e}")
+                continue
+
+        # If we got >= 80% of leaves validated, accept; else fallback
+        if len(out) >= len(leaves) * 0.8:
+            logger.info(f"Stage B single-call OK: {len(out)}/{len(leaves)} validations")
+            return out
+        logger.warning(
+            f"Stage B single-call only validated {len(out)}/{len(leaves)}, fallback to per-leaf"
+        )
+        return None
+    except Exception as e:
+        logger.warning(f"Stage B single-call failed: {e}, fallback to per-leaf")
+        return None
+
+
 def _validate_leaves_batch(
     transcript: Transcript,
     leaves: list[SubTopic],
@@ -403,6 +460,9 @@ def segment_topics(
     coherence_map: dict[str, float] = {}
     adjusted_leaves: list[SubTopic] = []
 
+    # NOTE: Stage B single-call (_validate_leaves_single_call) was tested but produced
+    # too many internal_break splits, ballooning cost + reducing coherence. Disabled.
+    # Per-leaf parallel with workers=10 is fast enough and preserves quality.
     batch_results = _validate_leaves_batch(transcript, leaves, job_id)
 
     if batch_results is not None:
@@ -420,7 +480,7 @@ def segment_topics(
                     coherence_map[split_st.name] = split_val.coherence_score
             adjusted_leaves.extend(result_topics)
     else:
-        with ThreadPoolExecutor(max_workers=min(3, len(leaves))) as pool:
+        with ThreadPoolExecutor(max_workers=min(10, len(leaves))) as pool:
             futures = {
                 pool.submit(_run_stage_b_single, transcript, leaf, "stage_b", job_id): leaf
                 for leaf in leaves

@@ -12,6 +12,7 @@ dependencies = [
     "alembic>=1.13",
     "huey>=2.5",
     "anthropic>=0.39",
+    "litellm>=1.52",
     "yt-dlp>=2024.10.7",
     "ffmpeg-python>=0.2",
     "scenedetect[opencv]>=0.6",
@@ -24,6 +25,9 @@ dependencies = [
     "cryptography>=43",
     "websockets>=13",
     "click>=8.1",
+    "google-api-python-client>=2.195.0",
+    "google-auth-oauthlib>=1.3.1",
+    "google-auth-httplib2>=0.3.1",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +42,7 @@ cpu = [
     "torchaudio>=2.5",
     "faster-whisper>=1.0.3",
     "whisperx>=3.1",
+    "mlx-whisper>=0.4 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 dev = [
     "pytest>=8",

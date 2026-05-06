@@ -41,7 +41,7 @@ R15. Coverage. Total clip duration ≈ video duration minus intro/outro strip. M
 STAGE_A_TOOL = {
     "name": "submit_topic_tree",
     "description": "Submit the analyzed topic tree.",
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "main_topic": {"type": "string", "description": "The main topic of the entire video"},
@@ -96,43 +96,107 @@ STAGE_A_TOOL = {
     },
 }
 
+_STAGE_B_VALIDATION_PROPS = {
+    "coherence_score": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5,
+        "description": "1=incoherent, 5=perfectly self-contained",
+    },
+    "start_adjust": {
+        "type": "integer",
+        "description": "Signed sentence shift for start boundary (negative=earlier, positive=later)",
+    },
+    "end_adjust": {
+        "type": "integer",
+        "description": "Signed sentence shift for end boundary",
+    },
+    "internal_break": {
+        "type": ["object", "null"],
+        "description": "If the segment has an internal topic shift, specify the break point",
+        "properties": {
+            "start": {"type": "string", "pattern": "^S\\d{3}$"},
+            "end": {"type": "string", "pattern": "^S\\d{3}$"},
+        },
+        "required": ["start", "end"],
+    },
+    "notes": {"type": "string", "description": "Explanation of adjustments"},
+}
+
 STAGE_B_TOOL = {
     "name": "submit_validation",
     "description": "Submit validation result for a sub-topic segment.",
-    "input_schema": {
+    "parameters": {
         "type": "object",
-        "properties": {
-            "coherence_score": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 5,
-                "description": "1=incoherent, 5=perfectly self-contained",
-            },
-            "start_adjust": {
-                "type": "integer",
-                "description": "Signed sentence shift for start boundary (negative=earlier, positive=later)",
-            },
-            "end_adjust": {
-                "type": "integer",
-                "description": "Signed sentence shift for end boundary",
-            },
-            "internal_break": {
-                "type": ["object", "null"],
-                "description": "If the segment has an internal topic shift, specify the break point",
-                "properties": {
-                    "start": {"type": "string", "pattern": "^S\\d{3}$"},
-                    "end": {"type": "string", "pattern": "^S\\d{3}$"},
-                },
-                "required": ["start", "end"],
-            },
-            "notes": {"type": "string", "description": "Explanation of adjustments"},
-        },
+        "properties": _STAGE_B_VALIDATION_PROPS,
         "required": ["coherence_score", "start_adjust", "end_adjust", "notes"],
     },
 }
 
+# Batched Stage B: validate ALL sub-topics in 1 LLM call.
+# Saves N-1 round-trips + system prompt cache hits for repeat usage.
+STAGE_B_BATCH_TOOL = {
+    "name": "submit_validations_batch",
+    "description": "Submit validation results for multiple sub-topic segments at once.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "validations": {
+                "type": "array",
+                "description": "One validation per input sub-topic, in the SAME ORDER as the input list. Use 'topic_index' to verify alignment.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "topic_index": {
+                            "type": "integer",
+                            "description": "0-based index matching the input sub-topic order",
+                        },
+                        **_STAGE_B_VALIDATION_PROPS,
+                    },
+                    "required": ["topic_index", "coherence_score", "start_adjust", "end_adjust", "notes"],
+                },
+            },
+        },
+        "required": ["validations"],
+    },
+}
+
+
+def build_stage_b_batch(
+    transcript: Transcript,
+    items: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """Build a single-LLM-call prompt that validates all sub-topics at once.
+
+    items: [{name, parent, start_id, end_id}, ...]
+    Returns (system_blocks, messages).
+    """
+    parts: list[str] = [
+        f"Validate {len(items)} sub-topic segments in a SINGLE call. "
+        "Return a `validations` array with one entry per input, preserving order via `topic_index`.\n"
+    ]
+    for idx, it in enumerate(items):
+        sentences = transcript.sentences_between(it["start_id"], it["end_id"])
+        segment_text = "\n".join(f"{s.id}: {s.text}" for s in sentences)
+        parts.append(
+            f"\n=== TOPIC {idx} ===\n"
+            f"Name: \"{it['name']}\"\n"
+            f"Parent: \"{it.get('parent') or 'None'}\"\n"
+            f"Range: {it['start_id']} → {it['end_id']}\n"
+            f"Segment:\n{segment_text}\n"
+        )
+    parts.append("\nUse the `submit_validations_batch` tool. Return ONE entry per topic, indexed 0..N-1.")
+    user_msg = "".join(parts)
+
+    system_blocks = [
+        {"type": "text", "text": SYSTEM_STAGE_B, "cache_control": {"type": "ephemeral"}},
+    ]
+    messages = [{"role": "user", "content": user_msg}]
+    return system_blocks, messages
+
 
 def _format_transcript(transcript: Transcript) -> str:
+    """Standard format: 'S###: text'. Reverted from compact — quality > token savings."""
     lines = []
     for s in transcript.sentences:
         lines.append(f"{s.id}: {s.text}")

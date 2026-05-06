@@ -664,7 +664,7 @@ from pydantic import BaseModel
 from youtok.__version__ import __version__
 import sys
 
-GITHUB_REPO = "haiphan/youtok"  # CHANGE to actual repo
+GITHUB_REPO = "haichit/youtok"
 RELEASES_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 

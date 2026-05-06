@@ -16,7 +16,7 @@ if config.config_file_name is not None:
 
 from youtok.config import settings
 from youtok.db.base import Base
-from youtok.db.models import License, Job, Clip  # noqa
+from youtok.db.models import License, Job, Clip, ApiKey, Setting  # noqa
 
 config.set_main_option("sqlalchemy.url", settings.db_url)
 target_metadata = Base.metadata

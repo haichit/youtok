@@ -64,6 +64,10 @@ class Settings(BaseSettings):
         return self.assets_dir / "fonts"
 
     @property
+    def logos_dir(self) -> Path:
+        return self.assets_dir / "logos"
+
+    @property
     def bin_dir(self) -> Path:
         import platform
         sub = "mac" if platform.system() == "Darwin" else "win"
@@ -96,3 +100,4 @@ class Settings(BaseSettings):
 settings = Settings()
 settings.data_dir.mkdir(parents=True, exist_ok=True)
 settings.workdir.mkdir(parents=True, exist_ok=True)
+settings.logos_dir.mkdir(parents=True, exist_ok=True)

@@ -6,6 +6,28 @@ from sqlalchemy.orm import relationship
 from youtok.db.base import Base
 
 
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True)
+    provider = Column(String(20), unique=True, nullable=False)
+    key = Column(Text, nullable=False)
+    stage_a_model = Column(String(100), nullable=True)
+    stage_b_model = Column(String(100), nullable=True)
+    last_validated = Column(DateTime, nullable=True)
+    last_validation_status = Column(String(20), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Setting(Base):
+    __tablename__ = "settings"
+
+    key = Column(String(50), primary_key=True)
+    value = Column(Text, nullable=False)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class License(Base):
     __tablename__ = "licenses"
 
@@ -69,3 +91,41 @@ class Clip(Base):
     sentence_range_end = Column(String, nullable=False)
 
     job = relationship("Job", back_populates="clips")
+
+
+class DriveToken(Base):
+    __tablename__ = "drive_tokens"
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String, nullable=False)
+    token_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DriveUpload(Base):
+    __tablename__ = "drive_uploads"
+
+    id = Column(Integer, primary_key=True)
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    progress_pct = Column(Integer, nullable=False, default=0)
+    current_file = Column(String, nullable=True)
+    drive_folder_id = Column(String, nullable=True)
+    drive_folder_url = Column(String, nullable=True)
+    files_json = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+    job = relationship("Job")
+
+
+class Logo(Base):
+    __tablename__ = "logos"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    top_file_path = Column(String, nullable=False)
+    bottom_file_path = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

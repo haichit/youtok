@@ -116,74 +116,67 @@ def split_sentences(words: list[WordToken]) -> list[Sentence]:
     return sentences
 
 
-def transcribe(audio_path: Path, language: str = "en") -> Transcript:
+_whisper_model_cache: dict = {}
+
+
+def _get_whisper_model(model_name: str, device: str, compute_type: str):
+    """Singleton WhisperModel cached per (model, device, compute_type) — avoids reload per job."""
     from faster_whisper import WhisperModel
+    key = (model_name, device, compute_type)
+    if key not in _whisper_model_cache:
+        logger.info(f"Loading WhisperModel: {model_name} ({device}, {compute_type})")
+        _whisper_model_cache[key] = WhisperModel(model_name, device=device, compute_type=compute_type)
+    return _whisper_model_cache[key]
+
+
+def transcribe(audio_path: Path, language: str = "en", use_cache: bool = True) -> Transcript:
+    if use_cache:
+        from youtok.core.cache import load_transcript, save_transcript
+        cached = load_transcript(audio_path)
+        if cached is not None:
+            return cached
 
     device, compute_type, model_name = detect_device()
-    logger.info(f"WhisperX: device={device}, compute_type={compute_type}, model={model_name}")
+    logger.info(f"Transcribe: device={device}, compute_type={compute_type}, model={model_name}")
 
     if device == "cpu":
-        logger.warning("CPU mode: transcription will be slow (5-10min for 15min video)")
+        logger.warning("CPU mode: transcription will be slow")
 
-    model = WhisperModel(model_name, device=device, compute_type=compute_type)
-    segments, info = model.transcribe(str(audio_path), language=language, word_timestamps=True)
+    model = _get_whisper_model(model_name, device, compute_type)
+    # Single transcribe pass with word_timestamps=True is enough.
+    # Snap window in pipeline is ±2s — faster-whisper word_ts (±100-200ms) is more than precise enough.
+    segments, info = model.transcribe(
+        str(audio_path),
+        language=language,
+        word_timestamps=True,
+        vad_filter=True,  # skip long silences
+    )
 
     all_words: list[WordToken] = []
     for segment in segments:
         if segment.words:
             for w in segment.words:
+                if not w.word.strip():
+                    continue
                 all_words.append(WordToken(
                     word=w.word.strip(),
                     start=round(w.start, 3),
                     end=round(w.end, 3),
                 ))
 
-    try:
-        import whisperx
-        import torch
-
-        align_model, align_meta = whisperx.load_align_model(
-            language_code=language, device=device
-        )
-        result_segments = []
-        for segment in model.transcribe(str(audio_path), language=language)[0]:
-            result_segments.append({
-                "text": segment.text,
-                "start": segment.start,
-                "end": segment.end,
-            })
-
-        if result_segments:
-            aligned = whisperx.align(
-                result_segments, align_model, align_meta,
-                str(audio_path), device,
-            )
-            aligned_words: list[WordToken] = []
-            for seg in aligned.get("segments", []):
-                for w in seg.get("words", []):
-                    if "start" in w and "end" in w:
-                        aligned_words.append(WordToken(
-                            word=w["word"].strip(),
-                            start=round(w["start"], 3),
-                            end=round(w["end"], 3),
-                        ))
-            if aligned_words:
-                all_words = aligned_words
-                logger.info("Using WhisperX-aligned word timestamps")
-    except ImportError:
-        logger.info("whisperx not available, using faster-whisper word timestamps")
-    except Exception as e:
-        logger.warning(f"WhisperX alignment failed, falling back: {e}")
-
-    all_words = [w for w in all_words if w.word]
-
     sentences = split_sentences(all_words)
     duration = all_words[-1].end if all_words else 0.0
 
     logger.info(f"Transcribed: {len(all_words)} words, {len(sentences)} sentences, {duration:.1f}s")
 
-    return Transcript(
+    transcript = Transcript(
         language=language,
         duration_sec=duration,
         sentences=sentences,
     )
+
+    if use_cache:
+        from youtok.core.cache import save_transcript
+        save_transcript(audio_path, transcript)
+
+    return transcript

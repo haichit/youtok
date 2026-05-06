@@ -26,3 +26,14 @@ dist/
 
 # Runtime data (license, DB, logs)
 data/
+
+# Sensitive keys
+assets/keys/
+
+# Runtime output
+nohup.out
+worker.out
+*.out
+
+# Vendor binaries (downloaded in CI)
+vendor/

@@ -14,21 +14,135 @@
 
   <div id="tab-single" class="tab-pane">
     <form method="POST" action="/jobs/" class="space-y-4">
-      <input name="source_url" placeholder="https://youtube.com/watch?v=..." required
-             class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
-      <input name="output_dir" placeholder="/Users/me/Videos/Cuts" required
-             class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
-      <button type="submit" class="gradient-btn px-6 py-2 rounded-lg font-semibold text-white">Submit</button>
+      <div>
+        <label class="text-xs text-white/60 block mb-1">YouTube URL</label>
+        <input name="source_url" placeholder="https://youtube.com/watch?v=..." required
+               class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+      </div>
+      <div>
+        <label class="text-xs text-white/60 block mb-1">LLM Provider (xử lý transcript → clip plan)</label>
+        {% if providers_with_keys %}
+        <select name="provider" required
+                class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+          {% for pid, label in providers_with_keys %}
+          <option value="{{ pid }}" {% if pid == chosen_provider %}selected{% endif %}>
+            {{ label }} — {{ provider_defaults[pid]['stage_a'] }} + {{ provider_defaults[pid]['stage_b'] }}
+          </option>
+          {% endfor %}
+        </select>
+        <div class="text-xs text-white/40 mt-1">Lần chọn này sẽ được nhớ cho job sau. Đổi key/model ở <a href="/settings" class="text-accent-pink hover:underline">Settings</a>.</div>
+        {% else %}
+        <div class="bg-red-500/10 border border-red-500/40 rounded-lg p-3 text-sm text-red-200">
+          ⚠ Chưa có API key nào được cấu hình. Vào <a href="/settings" class="underline font-semibold">Settings</a> để thêm key trước khi submit job.
+        </div>
+        {% endif %}
+      </div>
+      <div>
+        <label class="text-xs text-white/60 block mb-1">Logo khung hình (tùy chọn)</label>
+        <select name="logo_id"
+                class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+          <option value="">Không dùng logo</option>
+          {% for logo in logos %}
+          <option value="{{ logo.id }}">{{ logo.name }}</option>
+          {% endfor %}
+        </select>
+        <div class="text-xs text-white/40 mt-1">Quản lý logo ở <a href="/settings" class="text-accent-pink hover:underline">Settings</a>.</div>
+      </div>
+      <div>
+        <label class="text-xs text-white/60 block mb-1">Output folder (where clips will be saved)</label>
+        <div class="flex gap-2">
+          <input name="output_dir" value="{{ default_output_dir }}" placeholder="/Users/me/Videos/Cuts" required
+                 list="recent-folders-list"
+                 autocomplete="off"
+                 class="output-dir-input flex-1 bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+          <button type="button" onclick="openPicker(this)" class="glass px-4 py-2 rounded-lg text-sm hover:bg-white/10 whitespace-nowrap">Browse…</button>
+        </div>
+        {% if recent_output_dirs and recent_output_dirs|length > 1 %}
+        <div class="text-xs text-white/40 mt-1">
+          Gần đây:
+          {% for p in recent_output_dirs %}
+          <button type="button" onclick="this.closest('form').querySelector('.output-dir-input').value='{{ p|e }}'"
+                  class="ml-1 px-2 py-0.5 rounded bg-white/5 hover:bg-white/15 font-mono text-[11px] text-white/70 hover:text-white">{{ p }}</button>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      {% if drive_connected %}
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="auto_upload_drive" value="1">
+        <span class="text-sm text-white/80">Tự động upload lên Google Drive sau khi xử lý xong</span>
+      </label>
+      {% endif %}
+
+      <button type="submit" {% if not providers_with_keys %}disabled{% endif %}
+              class="gradient-btn px-6 py-2 rounded-lg font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed">Submit</button>
     </form>
   </div>
 
   <div id="tab-bulk" class="tab-pane hidden">
     <form method="POST" action="/jobs/bulk" class="space-y-4">
-      <textarea name="urls" rows="10" placeholder="Paste URLs, one per line" required
-                class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 font-mono text-sm text-white focus:border-accent-purple outline-none resize-none"></textarea>
-      <input name="output_dir" placeholder="/Users/me/Videos/Cuts" required
-             class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
-      <button type="submit" class="gradient-btn px-6 py-2 rounded-lg font-semibold text-white">Submit All</button>
+      <div>
+        <label class="text-xs text-white/60 block mb-1">YouTube URLs (one per line)</label>
+        <textarea name="urls" rows="10" placeholder="Paste URLs, one per line" required
+                  class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 font-mono text-sm text-white focus:border-accent-purple outline-none resize-none"></textarea>
+      </div>
+      <div>
+        <label class="text-xs text-white/60 block mb-1">LLM Provider</label>
+        {% if providers_with_keys %}
+        <select name="provider" required
+                class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+          {% for pid, label in providers_with_keys %}
+          <option value="{{ pid }}" {% if pid == chosen_provider %}selected{% endif %}>
+            {{ label }} — {{ provider_defaults[pid]['stage_a'] }} + {{ provider_defaults[pid]['stage_b'] }}
+          </option>
+          {% endfor %}
+        </select>
+        {% else %}
+        <div class="bg-red-500/10 border border-red-500/40 rounded-lg p-3 text-sm text-red-200">
+          ⚠ Chưa có API key. Vào <a href="/settings" class="underline font-semibold">Settings</a> trước.
+        </div>
+        {% endif %}
+      </div>
+      <div>
+        <label class="text-xs text-white/60 block mb-1">Logo khung hình (tùy chọn)</label>
+        <select name="logo_id"
+                class="w-full bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+          <option value="">Không dùng logo</option>
+          {% for logo in logos %}
+          <option value="{{ logo.id }}">{{ logo.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-white/60 block mb-1">Output folder (where clips will be saved)</label>
+        <div class="flex gap-2">
+          <input name="output_dir" value="{{ default_output_dir }}" placeholder="/Users/me/Videos/Cuts" required
+                 list="recent-folders-list"
+                 autocomplete="off"
+                 class="output-dir-input flex-1 bg-bg-mid/50 border border-white/10 rounded-lg p-3 text-white focus:border-accent-purple outline-none">
+          <button type="button" onclick="openPicker(this)" class="glass px-4 py-2 rounded-lg text-sm hover:bg-white/10 whitespace-nowrap">Browse…</button>
+        </div>
+        {% if recent_output_dirs and recent_output_dirs|length > 1 %}
+        <div class="text-xs text-white/40 mt-1">
+          Gần đây:
+          {% for p in recent_output_dirs %}
+          <button type="button" onclick="this.closest('form').querySelector('.output-dir-input').value='{{ p|e }}'"
+                  class="ml-1 px-2 py-0.5 rounded bg-white/5 hover:bg-white/15 font-mono text-[11px] text-white/70 hover:text-white">{{ p }}</button>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      {% if drive_connected %}
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="auto_upload_drive" value="1">
+        <span class="text-sm text-white/80">Tự động upload lên Google Drive sau khi xử lý xong</span>
+      </label>
+      {% endif %}
+
+      <button type="submit" {% if not providers_with_keys %}disabled{% endif %}
+              class="gradient-btn px-6 py-2 rounded-lg font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed">Submit All</button>
     </form>
   </div>
 
@@ -50,7 +164,108 @@
   </div>
 </div>
 
+<!-- Shared datalist for both Single + Bulk output_dir inputs (autocomplete) -->
+<datalist id="recent-folders-list">
+  {% for p in recent_output_dirs %}
+  <option value="{{ p }}"></option>
+  {% endfor %}
+</datalist>
+
+<!-- Folder picker modal -->
+<div id="folder-picker" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+  <div class="glass rounded-2xl max-w-2xl w-full max-h-[80vh] flex flex-col">
+    <div class="p-4 border-b border-white/10 flex items-center justify-between">
+      <h3 class="text-lg font-bold">Pick output folder</h3>
+      <button onclick="closePicker()" class="text-white/60 hover:text-white text-xl leading-none">&times;</button>
+    </div>
+    <div class="px-4 py-2 text-xs font-mono text-white/60 truncate" id="picker-path">—</div>
+    <div class="flex-1 overflow-y-auto p-2 min-h-[300px]">
+      <div id="picker-list" class="space-y-1"></div>
+    </div>
+    <div class="p-4 border-t border-white/10 flex gap-2">
+      <button onclick="pickerNewFolder()" class="glass px-3 py-2 rounded text-sm hover:bg-white/10">+ New folder</button>
+      <button onclick="pickerHome()" class="glass px-3 py-2 rounded text-sm hover:bg-white/10">~ Home</button>
+      <div class="flex-1"></div>
+      <button onclick="closePicker()" class="glass px-4 py-2 rounded text-sm">Cancel</button>
+      <button onclick="pickerSelect()" class="gradient-btn px-4 py-2 rounded text-sm font-semibold">Use this folder</button>
+    </div>
+  </div>
+</div>
+
 <script>
+  let pickerTargetInput = null;
+  let pickerCurrentPath = null;
+
+  function openPicker(btn) {
+    pickerTargetInput = btn.parentElement.querySelector('.output-dir-input');
+    const startPath = pickerTargetInput.value || '';
+    document.getElementById('folder-picker').classList.remove('hidden');
+    document.getElementById('folder-picker').classList.add('flex');
+    pickerNavigate(startPath);
+  }
+  function closePicker() {
+    document.getElementById('folder-picker').classList.add('hidden');
+    document.getElementById('folder-picker').classList.remove('flex');
+  }
+  async function pickerNavigate(path) {
+    const url = '/fs/browse' + (path ? '?path=' + encodeURIComponent(path) : '');
+    const r = await fetch(url);
+    if (!r.ok) {
+      // fallback to home if path invalid
+      const r2 = await fetch('/fs/browse');
+      if (!r2.ok) { alert('Cannot read filesystem'); return; }
+      const d2 = await r2.json();
+      renderPicker(d2);
+      return;
+    }
+    const d = await r.json();
+    renderPicker(d);
+  }
+  function renderPicker(d) {
+    pickerCurrentPath = d.path;
+    document.getElementById('picker-path').textContent = d.path;
+    const list = document.getElementById('picker-list');
+    list.innerHTML = '';
+    if (d.parent) {
+      const up = document.createElement('div');
+      up.className = 'px-3 py-2 rounded hover:bg-white/10 cursor-pointer text-sm';
+      up.textContent = '⬆ ..';
+      up.onclick = () => pickerNavigate(d.parent);
+      list.appendChild(up);
+    }
+    if (d.dirs.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'px-3 py-2 text-sm text-white/40 italic';
+      empty.textContent = '(no subfolders)';
+      list.appendChild(empty);
+    }
+    d.dirs.forEach(dir => {
+      const el = document.createElement('div');
+      el.className = 'px-3 py-2 rounded hover:bg-white/10 cursor-pointer text-sm flex items-center gap-2';
+      el.innerHTML = '<span>📁</span><span>' + dir.name + '</span>';
+      el.onclick = () => pickerNavigate(dir.path);
+      list.appendChild(el);
+    });
+  }
+  function pickerHome() { pickerNavigate(''); }
+  async function pickerNewFolder() {
+    const name = prompt('Folder name:');
+    if (!name || !pickerCurrentPath) return;
+    const newPath = pickerCurrentPath.replace(/\/$/, '') + '/' + name;
+    const fd = new FormData();
+    fd.append('path', newPath);
+    const r = await fetch('/fs/mkdir', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.ok) pickerNavigate(d.path);
+    else alert('Cannot create folder');
+  }
+  function pickerSelect() {
+    if (pickerTargetInput && pickerCurrentPath) {
+      pickerTargetInput.value = pickerCurrentPath;
+    }
+    closePicker();
+  }
+
   function showTab(name) {
     document.querySelectorAll('.tab-pane').forEach(e => e.classList.add('hidden'));
     document.getElementById('tab-' + name).classList.remove('hidden');

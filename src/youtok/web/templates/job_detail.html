@@ -22,7 +22,13 @@
 
     <div class="mt-6 text-xs text-white/40 space-y-1">
       <div>Source: <span class="text-white/60 break-all">{{ job.source_url }}</span></div>
-      <div>Output: <span class="text-white/60 break-all">{{ job.output_dir }}</span></div>
+      <div>Output: <span class="text-white/60 break-all">{{ job.output_dir }}</span>
+        <button onclick="openJobFolder()" class="ml-1 glass px-2 py-0.5 rounded text-xs hover:bg-white/10 transition">📁 Open</button>
+        {% if job.status == 'done' %}
+        <a href="/jobs/{{ job.id }}/download" download
+           class="ml-1 gradient-btn px-2 py-0.5 rounded text-xs hover:brightness-110 transition inline-block">⬇ Download all (.zip)</a>
+        {% endif %}
+      </div>
       {% if job.video_duration_sec %}
       <div>Duration: {{ "%.0f"|format(job.video_duration_sec / 60) }} min</div>
       {% endif %}
@@ -30,30 +36,180 @@
       <div>Created: {{ job.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
       {% endif %}
     </div>
+
+    <!-- Google Drive upload -->
+    {% if job.status == 'done' and drive_connected %}
+    <div class="mt-4 pt-4 border-t border-white/10">
+      <div class="flex items-center gap-2 mb-2">
+        <svg class="w-4 h-4 text-white/60" fill="currentColor" viewBox="0 0 24 24"><path d="M7.71 3.5L1.15 15l4.58 6h11.84l4.58-6L15.59 3.5H7.71zm.58 1h6.72l5.87 10.5h-5.17l-4.01-7h-.1l-4.01 7H2.42L8.29 4.5z"/></svg>
+        <span class="text-sm font-semibold text-white/80">Google Drive</span>
+      </div>
+
+      <div id="drive-section">
+        {% if drive_upload and drive_upload.status == 'done' %}
+        <div class="text-sm text-emerald-400">
+          &#10003; Đã upload lên Drive
+          {% if drive_upload.drive_folder_url %}
+          <a href="{{ drive_upload.drive_folder_url }}" target="_blank" rel="noopener"
+             class="ml-2 text-accent-pink hover:underline">Mở thư mục &rarr;</a>
+          {% endif %}
+        </div>
+        {% elif drive_upload and drive_upload.status == 'uploading' %}
+        <div class="text-sm text-yellow-400 mb-1">Đang upload... {{ drive_upload.progress_pct }}%</div>
+        <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+          <div id="drive-progress-bar" class="h-full bg-yellow-400 transition-all duration-300" style="width: {{ drive_upload.progress_pct }}%"></div>
+        </div>
+        <div id="drive-current-file" class="text-xs text-white/40 mt-1">{{ drive_upload.current_file or '' }}</div>
+        {% elif drive_upload and drive_upload.status == 'failed' %}
+        <div class="text-sm text-red-400 mb-1">Upload thất bại: {{ drive_upload.error_message or 'Unknown error' }}</div>
+        <button onclick="startDriveUpload()" class="glass px-3 py-1 rounded text-xs hover:bg-white/10 transition mt-1">Thử lại</button>
+        {% else %}
+        <button onclick="startDriveUpload()" class="glass px-3 py-1.5 rounded text-sm hover:bg-white/10 transition">Upload lên Drive</button>
+        {% endif %}
+      </div>
+      <div id="drive-status-msg" class="text-xs mt-1"></div>
+    </div>
+    {% elif job.status == 'done' and not drive_connected %}
+    <div class="mt-4 pt-4 border-t border-white/10 text-xs text-white/40">
+      <a href="/settings" class="text-accent-pink hover:underline">Kết nối Google Drive</a> để upload clips.
+    </div>
+    {% endif %}
   </div>
 
   <!-- Right: clips -->
   <div class="col-span-2 glass rounded-2xl p-6">
     <h2 class="text-xl font-bold mb-4">Clips ({{ clips|length }})</h2>
-    <div id="clip-grid" hx-get="/jobs/{{ job.id }}/clips" hx-trigger="load, every 3s" hx-swap="innerHTML">
+    <div id="clip-grid"
+         hx-get="/jobs/{{ job.id }}/clips"
+         hx-trigger="load{% if job.status not in ['done', 'failed'] %}, every 3s{% endif %}"
+         hx-swap="innerHTML">
       <div class="text-white/60 text-sm">Loading...</div>
     </div>
   </div>
 </div>
 
 <script>
-const ws = new WebSocket(`ws://${location.host}/ws/jobs/{{ job.id }}`);
-ws.onmessage = (ev) => {
-  const data = JSON.parse(ev.data);
+let ws = null;
+let wsReconnectDelay = 1000;
+let pollTimer = null;
+const initialStatus = {{ job.status|tojson }};
+const isTerminal = (s) => s === 'done' || s === 'failed';
+let lastStatus = initialStatus;
+let reloadScheduled = false;
+
+function applyProgress(data) {
   if (data.ping) return;
   document.getElementById('progress-bar').style.width = data.pct + '%';
   document.getElementById('progress-pct').textContent = data.pct + '%';
   document.getElementById('progress-step').textContent = data.step;
-  document.getElementById('progress-message').textContent = data.message;
-  if (data.status === 'done' || data.status === 'failed') {
+  document.getElementById('progress-message').textContent = data.message || '';
+  // Only reload on transition from running -> terminal, never if page loaded already terminal
+  if (!isTerminal(initialStatus) && isTerminal(data.status) && !reloadScheduled) {
+    reloadScheduled = true;
     setTimeout(() => location.reload(), 1500);
   }
-};
-ws.onerror = () => console.log('WebSocket error — will reconnect on page refresh');
+  // Stop polling/WS once terminal — no more updates expected
+  if (isTerminal(data.status)) {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} ws = null; }
+  }
+  lastStatus = data.status;
+}
+
+async function pollProgress() {
+  try {
+    const r = await fetch('/jobs/{{ job.id }}/progress');
+    if (r.ok) applyProgress(await r.json());
+  } catch (e) {}
+}
+
+function connectWS() {
+  ws = new WebSocket(`ws://${location.host}/ws/jobs/{{ job.id }}`);
+  ws.onopen = () => {
+    wsReconnectDelay = 1000;
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  };
+  ws.onmessage = (ev) => applyProgress(JSON.parse(ev.data));
+  ws.onclose = () => {
+    if (!pollTimer) pollTimer = setInterval(pollProgress, 2000);
+    setTimeout(connectWS, wsReconnectDelay);
+    wsReconnectDelay = Math.min(wsReconnectDelay * 2, 10000);
+  };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+
+// If job already in terminal state at page load, don't open WS / poll at all
+if (!isTerminal(initialStatus)) {
+  connectWS();
+  pollProgress();
+}
+
+async function openJobFolder() {
+  const fd = new FormData();
+  fd.append('path', {{ job.output_dir|tojson }});
+  try { await fetch('/fs/open', {method:'POST', body: fd}); } catch(e) {}
+}
+
+// Google Drive upload
+let drivePolling = null;
+
+async function startDriveUpload() {
+  const msg = document.getElementById('drive-status-msg');
+  msg.textContent = 'Đang khởi tạo upload...';
+  msg.className = 'text-xs mt-1 text-yellow-400';
+  try {
+    const r = await fetch('/drive/upload/{{ job.id }}', { method: 'POST' });
+    const data = await r.json();
+    if (r.ok && data.ok) {
+      msg.textContent = '';
+      pollDriveUpload();
+    } else {
+      msg.textContent = data.detail || 'Lỗi khởi tạo upload';
+      msg.className = 'text-xs mt-1 text-red-400';
+    }
+  } catch (e) {
+    msg.textContent = 'Lỗi kết nối';
+    msg.className = 'text-xs mt-1 text-red-400';
+  }
+}
+
+function pollDriveUpload() {
+  if (drivePolling) return;
+  drivePolling = setInterval(async () => {
+    try {
+      const r = await fetch('/drive/upload/{{ job.id }}/status');
+      if (!r.ok) return;
+      const d = await r.json();
+      if (!d.exists) return;
+
+      const section = document.getElementById('drive-section');
+      if (d.status === 'uploading') {
+        section.innerHTML = `
+          <div class="text-sm text-yellow-400 mb-1">Đang upload... ${d.progress_pct}%</div>
+          <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+            <div class="h-full bg-yellow-400 transition-all duration-300" style="width: ${d.progress_pct}%"></div>
+          </div>
+          <div class="text-xs text-white/40 mt-1">${d.current_file || ''}</div>`;
+      } else if (d.status === 'done') {
+        clearInterval(drivePolling); drivePolling = null;
+        let link = '';
+        if (d.drive_folder_url) {
+          link = ` <a href="${d.drive_folder_url}" target="_blank" rel="noopener" class="ml-2 text-accent-pink hover:underline">Mở thư mục &rarr;</a>`;
+        }
+        section.innerHTML = `<div class="text-sm text-emerald-400">&#10003; Đã upload lên Drive${link}</div>`;
+      } else if (d.status === 'failed') {
+        clearInterval(drivePolling); drivePolling = null;
+        section.innerHTML = `
+          <div class="text-sm text-red-400 mb-1">Upload thất bại: ${d.error_message || 'Unknown error'}</div>
+          <button onclick="startDriveUpload()" class="glass px-3 py-1 rounded text-xs hover:bg-white/10 transition mt-1">Thử lại</button>`;
+      }
+    } catch (e) {}
+  }, 2000);
+}
+
+// Auto-start polling if upload is in progress on page load
+{% if drive_upload and drive_upload.status == 'uploading' %}
+pollDriveUpload();
+{% endif %}
 </script>
 {% endblock %}

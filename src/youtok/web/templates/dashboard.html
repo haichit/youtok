@@ -2,34 +2,194 @@
 {% set show_nav = true %}
 {% block title %}Dashboard — Youtok{% endblock %}
 {% block content %}
-<!-- Stats grid -->
+{% set af = active_filter or '' %}
+{% set df = date_from or '' %}
+{% set dt = date_to or '' %}
+{% set qstr = '' %}
+{% if af %}{% set qstr = qstr ~ 'filter=' ~ af ~ '&' %}{% endif %}
+{% if df %}{% set qstr = qstr ~ 'date_from=' ~ df ~ '&' %}{% endif %}
+{% if dt %}{% set qstr = qstr ~ 'date_to=' ~ dt ~ '&' %}{% endif %}
+<!-- Stats grid (clickable filters) -->
 <div class="grid grid-cols-4 gap-4 mb-6">
-  <div class="glass rounded-2xl p-6">
-    <div class="text-white/60 text-sm">Total</div>
+  <a href="/dashboard?{% if df %}date_from={{ df }}&{% endif %}{% if dt %}date_to={{ dt }}{% endif %}"
+     class="glass rounded-2xl p-6 cursor-pointer hover:bg-white/10 transition {% if af == '' %}ring-2 ring-accent-purple{% endif %}">
+    <div class="text-white/60 text-sm">Total {% if af == '' %}<span class="text-xs ml-1">●</span>{% endif %}</div>
     <div class="text-3xl font-bold mt-2">{{ stats.total }}</div>
-  </div>
-  <div class="glass rounded-2xl p-6">
-    <div class="text-white/60 text-sm">Running</div>
+  </a>
+  <a href="/dashboard?filter=running{% if df %}&date_from={{ df }}{% endif %}{% if dt %}&date_to={{ dt }}{% endif %}"
+     class="glass rounded-2xl p-6 cursor-pointer hover:bg-white/10 transition {% if af == 'running' %}ring-2 ring-accent-pink{% endif %}">
+    <div class="text-white/60 text-sm">Running {% if af == 'running' %}<span class="text-xs ml-1">●</span>{% endif %}</div>
     <div class="text-3xl font-bold mt-2 text-accent-pink">{{ stats.running }}</div>
-  </div>
-  <div class="glass rounded-2xl p-6">
-    <div class="text-white/60 text-sm">Done</div>
+  </a>
+  <a href="/dashboard?filter=done{% if df %}&date_from={{ df }}{% endif %}{% if dt %}&date_to={{ dt }}{% endif %}"
+     class="glass rounded-2xl p-6 cursor-pointer hover:bg-white/10 transition {% if af == 'done' %}ring-2 ring-emerald-400{% endif %}">
+    <div class="text-white/60 text-sm">Done {% if af == 'done' %}<span class="text-xs ml-1">●</span>{% endif %}</div>
     <div class="text-3xl font-bold mt-2 text-emerald-400">{{ stats.done }}</div>
-  </div>
-  <div class="glass rounded-2xl p-6">
-    <div class="text-white/60 text-sm">Failed</div>
+  </a>
+  <a href="/dashboard?filter=failed{% if df %}&date_from={{ df }}{% endif %}{% if dt %}&date_to={{ dt }}{% endif %}"
+     class="glass rounded-2xl p-6 cursor-pointer hover:bg-white/10 transition {% if af == 'failed' %}ring-2 ring-red-400{% endif %}">
+    <div class="text-white/60 text-sm">Failed {% if af == 'failed' %}<span class="text-xs ml-1">●</span>{% endif %}</div>
     <div class="text-3xl font-bold mt-2 text-red-400">{{ stats.failed }}</div>
-  </div>
+  </a>
 </div>
 
 <!-- Job table -->
 <div class="glass rounded-2xl p-6">
   <div class="flex items-center justify-between mb-4">
-    <h2 class="text-xl font-bold">Jobs</h2>
-    <a href="/jobs/new" class="gradient-btn px-4 py-2 rounded-lg text-sm font-semibold">+ New</a>
+    <h2 class="text-xl font-bold">
+      Jobs{% if af %} <span class="text-sm text-white/60 font-normal">— filtered: {{ af }}</span>{% endif %}
+    </h2>
+    <div class="flex gap-2">
+      {% if af %}
+      <a href="/dashboard?{% if df %}date_from={{ df }}&{% endif %}{% if dt %}date_to={{ dt }}{% endif %}" class="glass px-3 py-2 rounded-lg text-sm">× Clear filter</a>
+      {% endif %}
+      <a href="/jobs/new" class="gradient-btn px-4 py-2 rounded-lg text-sm font-semibold">+ New</a>
+    </div>
   </div>
-  <div hx-get="/jobs?partial=1" hx-trigger="every 5s" hx-swap="innerHTML">
+
+  <!-- Date filter bar -->
+  <form method="get" action="/dashboard" class="flex flex-wrap items-center gap-2 mb-4 text-sm">
+    {% if af %}<input type="hidden" name="filter" value="{{ af }}">{% endif %}
+    <span class="text-white/60">Date:</span>
+    <input type="date" name="date_from" value="{{ df }}"
+           class="glass rounded p-2 text-sm" max="{{ dt or '' }}">
+    <span class="text-white/40">→</span>
+    <input type="date" name="date_to" value="{{ dt }}"
+           class="glass rounded p-2 text-sm" min="{{ df or '' }}">
+    <button type="submit" class="glass px-3 py-1.5 rounded hover:bg-white/10">Apply</button>
+    <div class="flex gap-1 ml-2">
+      <button type="button" onclick="setDateRange('today')" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">Today</button>
+      <button type="button" onclick="setDateRange('7d')" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">7d</button>
+      <button type="button" onclick="setDateRange('30d')" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">30d</button>
+      <button type="button" onclick="setDateRange('month')" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">This month</button>
+    </div>
+    {% if df or dt %}
+    <a href="/dashboard{% if af %}?filter={{ af }}{% endif %}" class="text-white/60 hover:text-white text-xs ml-2">× Clear dates</a>
+    {% endif %}
+    {% if df or dt %}
+    <span class="ml-auto text-xs text-white/50">
+      Range: <span class="text-white/80">{{ df or '...' }}</span> → <span class="text-white/80">{{ dt or '...' }}</span>
+    </span>
+    {% endif %}
+  </form>
+
+  <!-- Bulk action toolbar (hidden until any checkbox ticked) -->
+  <div id="bulk-bar" class="hidden mb-3 glass rounded-lg px-4 py-2 flex items-center gap-3">
+    <span class="text-sm text-white/70"><span id="bulk-count">0</span> selected</span>
+    <div class="flex-1"></div>
+    <button onclick="rerunSelected()" class="glass px-3 py-1.5 rounded text-sm hover:bg-white/10">↻ Re-run</button>
+    <button onclick="deleteSelected()" class="glass px-3 py-1.5 rounded text-sm text-red-300 hover:bg-red-500/20">✕ Delete</button>
+    <button onclick="clearSelection()" class="text-white/60 hover:text-white text-sm">Clear</button>
+  </div>
+
+  <div id="job-table-container"
+       hx-get="/jobs/?partial=1&{{ qstr }}page={{ page or 1 }}"
+       hx-trigger="every 2s [shouldPoll()]"
+       hx-swap="innerHTML">
     {% include "partials/job_table.html" %}
   </div>
 </div>
+
+<script>
+function setDateRange(preset) {
+  const today = new Date();
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  let from = '', to = fmt(today);
+  if (preset === 'today') from = fmt(today);
+  else if (preset === '7d') { const d = new Date(today); d.setDate(d.getDate() - 6); from = fmt(d); }
+  else if (preset === '30d') { const d = new Date(today); d.setDate(d.getDate() - 29); from = fmt(d); }
+  else if (preset === 'month') { from = fmt(new Date(today.getFullYear(), today.getMonth(), 1)); }
+  const url = new URL(location.href);
+  url.searchParams.set('date_from', from);
+  url.searchParams.set('date_to', to);
+  url.searchParams.delete('page');
+  location.href = url.toString();
+}
+
+// Persist selection across HTMX swaps using a Set of job IDs.
+const selectedIds = new Set();
+function shouldPoll() {
+  // Pause auto-refresh while user has anything selected (avoid flicker / lost focus).
+  return selectedIds.size === 0;
+}
+function syncSelectionFromDOM() {
+  selectedIds.clear();
+  document.querySelectorAll('.job-checkbox:checked').forEach(cb => selectedIds.add(cb.value));
+}
+function restoreSelectionToDOM() {
+  let allMatch = true;
+  let anyBox = false;
+  document.querySelectorAll('.job-checkbox').forEach(cb => {
+    anyBox = true;
+    cb.checked = selectedIds.has(cb.value);
+    if (!cb.checked) allMatch = false;
+  });
+  const master = document.querySelector('.job-select-all');
+  if (master) master.checked = anyBox && allMatch;
+}
+function getSelectedIds() {
+  return Array.from(selectedIds);
+}
+function updateJobBulkBar() {
+  syncSelectionFromDOM();
+  const ids = getSelectedIds();
+  const bar = document.getElementById('bulk-bar');
+  document.getElementById('bulk-count').textContent = ids.length;
+  if (ids.length > 0) bar.classList.remove('hidden');
+  else bar.classList.add('hidden');
+}
+function toggleAllJobs(masterCb) {
+  document.querySelectorAll('.job-checkbox').forEach(cb => cb.checked = masterCb.checked);
+  updateJobBulkBar();
+}
+function clearSelection() {
+  selectedIds.clear();
+  document.querySelectorAll('.job-checkbox, .job-select-all').forEach(cb => cb.checked = false);
+  updateJobBulkBar();
+}
+async function deleteJob(id, ev) {
+  if (ev) ev.stopPropagation();
+  if (!confirm(`Delete job ${id}? This removes job + all clips records (does NOT remove output files on disk).`)) return;
+  await fetch(`/jobs/${id}`, { method: 'DELETE' });
+  location.reload();
+}
+async function deleteSelected() {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} job(s)? Job records + clips records will be removed (output files on disk are kept).`)) return;
+  const fd = new FormData();
+  fd.append('ids', ids.join(','));
+  await fetch('/jobs/bulk-delete', { method: 'POST', body: fd });
+  location.reload();
+}
+async function rerunJob(id, ev) {
+  if (ev) ev.stopPropagation();
+  if (!confirm(`Re-run job ${id} with same URL + output folder? A new job will be created.`)) return;
+  const r = await fetch(`/jobs/${id}/rerun`, { method: 'POST' });
+  const d = await r.json();
+  if (d.ok) location.href = `/jobs/${d.new_job_id}`;
+  else alert('Rerun failed');
+}
+async function rerunSelected() {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  if (!confirm(`Re-run ${ids.length} job(s)?`)) return;
+  for (const id of ids) {
+    await fetch(`/jobs/${id}/rerun`, { method: 'POST' });
+  }
+  location.reload();
+}
+// After HTMX swaps the table partial, re-apply persisted selection from JS Set
+// (DON'T call syncSelectionFromDOM here — fresh DOM has no checks).
+document.body.addEventListener('htmx:afterSwap', (ev) => {
+  if (ev.target && ev.target.id === 'job-table-container') {
+    restoreSelectionToDOM();
+    // Update bar count without rescanning DOM (Set is the source of truth)
+    const bar = document.getElementById('bulk-bar');
+    document.getElementById('bulk-count').textContent = selectedIds.size;
+    if (selectedIds.size > 0) bar.classList.remove('hidden');
+    else bar.classList.add('hidden');
+  }
+});
+</script>
 {% endblock %}
