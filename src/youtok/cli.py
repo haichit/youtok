@@ -13,6 +13,23 @@ if sys.stdout is None or sys.stderr is None:
     if sys.stderr is None:
         sys.stderr = _devnull
 
+# When the host exe is windowed (console=False), every subprocess we
+# spawn — yt-dlp, ffmpeg, ffprobe, wmic, scenedetect, whisper — is a
+# console app and Windows pops up a black cmd window for each one.
+# Patch Popen.__init__ so calls without an explicit creationflags get
+# CREATE_NO_WINDOW. subprocess.run/check_output/check_call all go
+# through Popen, so this covers every call site in the codebase.
+if sys.platform == "win32":
+    import subprocess as _sp
+    _orig_popen_init = _sp.Popen.__init__
+
+    def _popen_no_window(self, *args, **kwargs):
+        if not kwargs.get("creationflags"):
+            kwargs["creationflags"] = _sp.CREATE_NO_WINDOW
+        return _orig_popen_init(self, *args, **kwargs)
+
+    _sp.Popen.__init__ = _popen_no_window
+
 import click
 from loguru import logger
 
