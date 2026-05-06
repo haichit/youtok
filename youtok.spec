@@ -22,15 +22,21 @@ _all_datas = [
 ]
 datas = [(src, dst) for src, dst in _all_datas if os.path.exists(src)]
 datas += collect_data_files("litellm")
+datas += collect_data_files("tiktoken")
+datas += collect_data_files("tiktoken_ext")
 
 _litellm_hiddenimports = collect_submodules("litellm")
+_tiktoken_hiddenimports = collect_submodules("tiktoken") + collect_submodules("tiktoken_ext") + [
+    "tiktoken_ext",
+    "tiktoken_ext.openai_public",
+]
 
 a = Analysis(
     ["src/youtok/cli.py"],
     pathex=["src"],
     binaries=[],
     datas=datas,
-    hiddenimports=_litellm_hiddenimports + [
+    hiddenimports=_litellm_hiddenimports + _tiktoken_hiddenimports + [
         "youtok.api.main",
         "youtok.api.routes.activate",
         "youtok.api.routes.channels",

@@ -11,9 +11,10 @@ from youtok.db import crud
 from youtok.db.base import get_db
 from youtok.db.models import Job
 from youtok.queue.tasks import process_job
+from youtok.web import TEMPLATES_DIR
 
 router = APIRouter()
-templates = Jinja2Templates(directory="src/youtok/web/templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 from youtok.llm.fx import fmt_vnd, get_usd_vnd_rate
 templates.env.globals["fmt_vnd"] = fmt_vnd
 templates.env.globals["get_usd_vnd_rate"] = get_usd_vnd_rate

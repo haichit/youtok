@@ -2,8 +2,10 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from loguru import logger
 
+from youtok.web import TEMPLATES_DIR
+
 router = APIRouter()
-templates = Jinja2Templates(directory="src/youtok/web/templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
 def _normalize_channel_url(url: str) -> str:

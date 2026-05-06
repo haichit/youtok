@@ -15,9 +15,10 @@ from youtok.db.crud import (
 )
 from youtok.llm.providers import PROVIDER_DEFAULTS, PROVIDER_CHOICES
 from youtok.llm.client import test_provider_connection
+from youtok.web import TEMPLATES_DIR
 
 router = APIRouter()
-templates = Jinja2Templates(directory="src/youtok/web/templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 from youtok.llm.fx import fmt_vnd, get_usd_vnd_rate
 templates.env.globals["fmt_vnd"] = fmt_vnd
 templates.env.globals["get_usd_vnd_rate"] = get_usd_vnd_rate

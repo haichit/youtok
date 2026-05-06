@@ -9,6 +9,7 @@ from loguru import logger
 from youtok.api.routes import activate, channels, drive, jobs, pages, settings, update
 from youtok.api.ws import progress_watcher, register_ws
 from youtok.db.base import Base, engine
+from youtok.web import STATIC_DIR
 
 
 @asynccontextmanager
@@ -103,7 +104,7 @@ def _seed_mock_data():
 def create_app() -> FastAPI:
     app = FastAPI(title="Youtok", lifespan=lifespan)
 
-    app.mount("/static", StaticFiles(directory="src/youtok/web/static"), name="static")
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     app.include_router(pages.router)
     app.include_router(activate.router, prefix="/activate")
