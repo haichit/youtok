@@ -103,17 +103,24 @@ def transcribe_cmd(audio: str):
 @click.option("--port", default=17555, type=int)
 def serve(host: str = "127.0.0.1", port: int = 17555):
     """Start web server + background worker."""
+    import subprocess
+    import sys
     import threading
     import webbrowser
 
-    from youtok.queue.huey_app import huey
-
-    def run_worker():
-        consumer = huey.create_consumer(workers=2, worker_type="thread")
-        consumer.run()
-
-    t = threading.Thread(target=run_worker, daemon=True)
-    t.start()
+    if getattr(sys, "frozen", False):
+        exe = sys.executable
+        worker_proc = subprocess.Popen(
+            [exe, "worker"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        worker_proc = subprocess.Popen(
+            [sys.executable, "-m", "youtok.cli", "worker"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def open_browser():
         import time
@@ -123,7 +130,18 @@ def serve(host: str = "127.0.0.1", port: int = 17555):
     threading.Thread(target=open_browser, daemon=True).start()
 
     import uvicorn
-    uvicorn.run("youtok.api.main:app", host=host, port=port)
+    try:
+        uvicorn.run("youtok.api.main:app", host=host, port=port)
+    finally:
+        worker_proc.terminate()
+
+
+@main.command()
+def worker():
+    """Run Huey consumer (internal use)."""
+    from youtok.queue.huey_app import huey
+    consumer = huey.create_consumer(workers=2, worker_type="thread")
+    consumer.run()
 
 
 if __name__ == "__main__":
