@@ -6,28 +6,26 @@ Output: dist/youtok/youtok.exe
 """
 
 import os
-import sys
 from pathlib import Path
 
 block_cipher = None
 
-# Collect all source files
+# Build datas list dynamically — skip entries that don't exist (e.g. vendor/ffmpeg only in CI)
+_all_datas = [
+    ("src/youtok/web/templates", "youtok/web/templates"),
+    ("src/youtok/web/static", "youtok/web/static"),
+    ("src/youtok/version.py", "youtok"),
+    ("vendor/ffmpeg/ffmpeg.exe", "ffmpeg"),
+    ("vendor/ffmpeg/ffprobe.exe", "ffmpeg"),
+    ("assets", "assets"),
+]
+datas = [(src, dst) for src, dst in _all_datas if os.path.exists(src)]
+
 a = Analysis(
     ["src/youtok/cli.py"],
     pathex=["src"],
     binaries=[],
-    datas=[
-        # Web templates & static files
-        ("src/youtok/web/templates", "youtok/web/templates"),
-        ("src/youtok/web/static", "youtok/web/static"),
-        # Version file
-        ("src/youtok/version.py", "youtok"),
-        # FFmpeg binaries (bundled separately)
-        ("vendor/ffmpeg/ffmpeg.exe", "ffmpeg"),
-        ("vendor/ffmpeg/ffprobe.exe", "ffmpeg"),
-        # Assets (keys dir placeholder)
-        ("assets", "assets"),
-    ],
+    datas=datas,
     hiddenimports=[
         "youtok.api.main",
         "youtok.api.routes.activate",

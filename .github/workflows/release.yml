@@ -19,30 +19,35 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[cpu]"
+          pip install -e .
           pip install pyinstaller packaging
 
       - name: Download ffmpeg
+        shell: pwsh
         run: |
-          curl -L -o ffmpeg.zip https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip
-          7z x ffmpeg.zip -offmpeg_tmp
-          mkdir -p vendor/ffmpeg
-          cp ffmpeg_tmp/ffmpeg-7.1-essentials_build/bin/ffmpeg.exe vendor/ffmpeg/
-          cp ffmpeg_tmp/ffmpeg-7.1-essentials_build/bin/ffprobe.exe vendor/ffmpeg/
+          $ffmpegDir = "vendor/ffmpeg"
+          New-Item -ItemType Directory -Force -Path $ffmpegDir | Out-Null
+          $url = "https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip"
+          Invoke-WebRequest -Uri $url -OutFile "$ffmpegDir/ffmpeg.zip"
+          Expand-Archive -Path "$ffmpegDir/ffmpeg.zip" -DestinationPath "$ffmpegDir/_unpack"
+          Copy-Item "$ffmpegDir/_unpack/*/bin/ffmpeg.exe" -Destination "$ffmpegDir/ffmpeg.exe"
+          Copy-Item "$ffmpegDir/_unpack/*/bin/ffprobe.exe" -Destination "$ffmpegDir/ffprobe.exe"
+          Remove-Item -Recurse -Force "$ffmpegDir/_unpack","$ffmpegDir/ffmpeg.zip"
 
       - name: Build exe with PyInstaller
         run: pyinstaller youtok.spec --noconfirm
 
       - name: Create release archive
+        shell: pwsh
         run: |
-          cd dist
-          7z a ../youtok-windows-x64.zip youtok/
+          Compress-Archive -Path dist/youtok/* -DestinationPath youtok-windows-x64.zip
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             youtok-windows-x64.zip
-            dist/youtok/youtok.exe
+          tag_name: ${{ github.ref_name || 'v0.1.0' }}
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
