@@ -31,12 +31,22 @@ _tiktoken_hiddenimports = collect_submodules("tiktoken") + collect_submodules("t
     "tiktoken_ext.openai_public",
 ]
 
+# pywebview: bundle all backends + clr_loader (needed for EdgeChromium on Windows)
+_webview_hiddenimports = collect_submodules("webview") + collect_submodules("clr_loader") + [
+    "webview.platforms.edgechromium",
+    "webview.platforms.winforms",
+    "clr_loader",
+    "pythonnet",
+]
+datas += collect_data_files("webview")
+datas += collect_data_files("clr_loader")
+
 a = Analysis(
     ["src/youtok/cli.py"],
     pathex=["src"],
     binaries=[],
     datas=datas,
-    hiddenimports=_litellm_hiddenimports + _tiktoken_hiddenimports + [
+    hiddenimports=_litellm_hiddenimports + _tiktoken_hiddenimports + _webview_hiddenimports + [
         "youtok.api.main",
         "youtok.api.routes.activate",
         "youtok.api.routes.channels",
@@ -100,7 +110,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

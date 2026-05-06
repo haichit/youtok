@@ -110,48 +110,91 @@ def transcribe_cmd(audio: str):
         print(f"  ... ({len(result.sentences) - 10} more)")
 
 
+def _wait_for_server(host: str, port: int, timeout: float = 20.0) -> bool:
+    """Block until the server accepts TCP connections, or until timeout."""
+    import socket
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.15)
+    return False
+
+
 @main.command()
 @click.option("--host", default="127.0.0.1")
 @click.option("--port", default=17555, type=int)
-def serve(host: str = "127.0.0.1", port: int = 17555):
-    """Start web server + background worker."""
+@click.option("--no-window", is_flag=True, help="Run server only, open in default browser instead of a desktop window")
+def serve(host: str = "127.0.0.1", port: int = 17555, no_window: bool = False):
+    """Start web server + background worker + desktop window."""
     import subprocess
     import threading
     import traceback
-    import webbrowser
 
     try:
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = subprocess.CREATE_NO_WINDOW
+
         if getattr(sys, "frozen", False):
-            exe = sys.executable
-            worker_proc = subprocess.Popen(
-                [exe, "worker"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            worker_cmd = [sys.executable, "worker"]
         else:
-            worker_proc = subprocess.Popen(
-                [sys.executable, "-m", "youtok.cli", "worker"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            worker_cmd = [sys.executable, "-m", "youtok.cli", "worker"]
 
-        def open_browser():
-            import time
-            time.sleep(1.5)
-            webbrowser.open(f"http://{host}:{port}")
-
-        threading.Thread(target=open_browser, daemon=True).start()
+        worker_proc = subprocess.Popen(
+            worker_cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
 
         import uvicorn
+        config = uvicorn.Config(
+            "youtok.api.main:app", host=host, port=port, log_level="warning"
+        )
+        server = uvicorn.Server(config)
+
+        if no_window:
+            import webbrowser
+
+            def _open_browser():
+                if _wait_for_server(host, port):
+                    webbrowser.open(f"http://{host}:{port}")
+
+            threading.Thread(target=_open_browser, daemon=True).start()
+            try:
+                server.run()
+            finally:
+                worker_proc.terminate()
+            return
+
+        server_thread = threading.Thread(target=server.run, daemon=True)
+        server_thread.start()
+
+        if not _wait_for_server(host, port):
+            raise RuntimeError(f"Server did not start on {host}:{port} within timeout")
+
+        import webview
+
+        webview.create_window(
+            "Youtok",
+            f"http://{host}:{port}",
+            width=1280,
+            height=800,
+            min_size=(900, 600),
+        )
         try:
-            uvicorn.run("youtok.api.main:app", host=host, port=port)
+            webview.start()
         finally:
+            server.should_exit = True
             worker_proc.terminate()
     except Exception:
         logger.exception("Fatal error in serve")
         if getattr(sys, "frozen", False):
             traceback.print_exc()
-            input("Press Enter to exit...")
         raise
 
 
