@@ -2,9 +2,11 @@ import click
 from loguru import logger
 
 
-@click.group()
-def main():
-    pass
+@click.group(invoke_without_command=True)
+@click.pass_context
+def main(ctx):
+    if ctx.invoked_subcommand is None:
+        serve()
 
 
 @main.command()
@@ -94,6 +96,34 @@ def transcribe_cmd(audio: str):
         print(f"  {s.id} [{s.start:.1f}-{s.end:.1f}]: {s.text[:80]}")
     if len(result.sentences) > 10:
         print(f"  ... ({len(result.sentences) - 10} more)")
+
+
+@main.command()
+@click.option("--host", default="127.0.0.1")
+@click.option("--port", default=17555, type=int)
+def serve(host: str = "127.0.0.1", port: int = 17555):
+    """Start web server + background worker."""
+    import threading
+    import webbrowser
+
+    from youtok.queue.huey_app import huey
+
+    def run_worker():
+        consumer = huey.create_consumer(workers=2, worker_type="thread")
+        consumer.run()
+
+    t = threading.Thread(target=run_worker, daemon=True)
+    t.start()
+
+    def open_browser():
+        import time
+        time.sleep(1.5)
+        webbrowser.open(f"http://{host}:{port}")
+
+    threading.Thread(target=open_browser, daemon=True).start()
+
+    import uvicorn
+    uvicorn.run("youtok.api.main:app", host=host, port=port)
 
 
 if __name__ == "__main__":
