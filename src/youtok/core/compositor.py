@@ -1,6 +1,8 @@
+import os
 import platform
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from loguru import logger
@@ -8,6 +10,33 @@ from pydantic import BaseModel
 
 from youtok.config import settings
 from youtok.core.transcriber import WordToken
+
+
+def _safe_copy(src: Path, dst: Path) -> None:
+    """Race-free copy: parallel render workers all try to copy fonts/logos
+    into the shared work_dir. Without this, two threads see `dst` missing,
+    both call shutil.copy2, and the second one hits
+    PermissionError [WinError 32] because the first still owns the write
+    handle. Copy to a per-worker tmp path then os.replace (atomic on
+    Windows when dst doesn't exist; if another worker beat us, swallow
+    the error — the file is already in place)."""
+    if dst.exists() and dst.stat().st_size > 0:
+        return
+    tmp = dst.with_suffix(dst.suffix + f".tmp.{os.getpid()}.{id(dst)}")
+    try:
+        shutil.copy2(src, tmp)
+        try:
+            os.replace(tmp, dst)
+        except PermissionError:
+            # Another worker raced ahead and is mid-write; wait briefly
+            for _ in range(50):
+                time.sleep(0.05)
+                if dst.exists() and dst.stat().st_size > 0:
+                    break
+            tmp.unlink(missing_ok=True)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _supports_videotoolbox() -> bool:
@@ -170,8 +199,7 @@ def render_clip(
     work_dir = ass_path.parent
     font_src = settings.fonts_dir / FONT_FILE
     font_local = work_dir / FONT_FILE
-    if not font_local.exists():
-        shutil.copy2(font_src, font_local)
+    _safe_copy(font_src, font_local)
 
     drawtext_filters = []
     title_font_size = 44
@@ -203,12 +231,10 @@ def render_clip(
     logo_bot_local = None
     if logo_top_path and logo_top_path.exists():
         logo_top_local = work_dir / f"logo_top.png"
-        if not logo_top_local.exists():
-            shutil.copy2(logo_top_path, logo_top_local)
+        _safe_copy(logo_top_path, logo_top_local)
     if logo_bottom_path and logo_bottom_path.exists():
         logo_bot_local = work_dir / f"logo_bot.png"
-        if not logo_bot_local.exists():
-            shutil.copy2(logo_bottom_path, logo_bot_local)
+        _safe_copy(logo_bottom_path, logo_bot_local)
 
     has_logos = logo_top_local or logo_bot_local
     if has_logos:
