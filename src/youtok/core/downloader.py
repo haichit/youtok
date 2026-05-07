@@ -83,9 +83,19 @@ def download_video(url: str, work_dir: Path) -> DownloadResult:
     _check_disk_space(work_dir)
 
     output_template = str(work_dir / f"{video_id}.%(ext)s")
+    # Prefer H.264 (avc1) over AV1: most consumer GPUs have hardware decoders for
+    # H.264 + HEVC but not AV1. Decoding AV1 on CPU makes scene detect take 4×
+    # longer (PySceneDetect must decode every frame). H.264 file is ~30% larger
+    # but the decode + scene-detect saving dwarfs that. Fallback chain:
+    #   1) AVC1 (H.264) ≤1080p  — fast HW decode
+    #   2) any mp4 ≤1080p       — usually AV1, still works
+    #   3) any best ≤1080p      — last resort
     subprocess.run([
         str(settings.ytdlp),
-        "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]",
+        "-f",
+        "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/"
+        "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
+        "best[height<=1080]",
         "--merge-output-format", "mp4",
         "-o", output_template,
         "--no-playlist",
