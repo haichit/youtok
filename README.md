@@ -2,16 +2,50 @@
 
 YouTube → 9:16 short-form clip cutter. Auto download → transcribe → topic-segment by LLM → snap to scene/pause → render with title overlay + word-highlight subtitle.
 
-**Status:** Planning (2026-05-04). Build pending.
+## Cài đặt nhanh trên Windows (khuyến nghị)
 
-## Quick start
+1. Tải `youtok-windows-x64.zip` mới nhất ở [Releases](https://github.com/haichit/youtok/releases/latest).
+2. **TRƯỚC khi giải nén**: chuột phải file zip → Properties → tick **Unblock** ở góc dưới → OK. Bước này gỡ Windows Mark-of-the-Web cho mọi file bên trong, tránh lỗi `Failed to resolve Python.Runtime.Loader.Initialize`.
+3. Giải nén ra folder bất kỳ.
+4. Double-click `youtok.exe` trong folder → cửa sổ "Youtok" mở qua Edge WebView2.
+5. Activate license → submit URL YouTube → app tự cắt clip 9:16.
+
+**Yêu cầu hệ thống:**
+
+- Windows 10/11 x64
+- Edge WebView2 Runtime (Win11 sẵn có; Win10 thường có hoặc tự cài lúc app khởi động)
+- ~2GB ổ trống cho exe + cache + workdir
+- (Tùy chọn) NVIDIA GPU + driver mới → tự động dùng NVENC encode (~2× nhanh hơn libx264)
+- API key LLM (Anthropic Claude / OpenAI / Google Gemini) — cấu hình trong `/settings` sau khi mở app
+
+## Troubleshooting
+
+### `RuntimeError: Failed to resolve Python.Runtime.Loader.Initialize ...Python.Runtime.dll`
+
+Triệu chứng cửa sổ không mở, error.log có dòng trên. Đây là Windows **Mark-of-the-Web** chặn .NET DLL bên trong zip download. Fix:
+
+**Cách dễ (làm trước khi extract):** chuột phải `youtok-windows-x64.zip` → Properties → tick **Unblock** → OK. Extract lại.
+
+**Cách đã extract rồi**: mở PowerShell tại folder chứa `youtok.exe`, chạy:
+
+```powershell
+Get-ChildItem -Recurse | Unblock-File
+```
+
+Rồi double-click `youtok.exe` lại.
+
+### App mở nhưng `[Errno 10048] only one usage of each socket address`
+
+Có instance Youtok khác đang chạy chiếm port 17555. Mở Task Manager → kill `youtok.exe` còn sót → chạy lại.
+
+## Dev / build từ source
 
 ### Prerequisites
 
-- Python 3.11+
-- ffmpeg + ffprobe (bundled in `assets/bin/` per OS, or system-installed)
-- (Optional) NVIDIA GPU with CUDA 12 for fast WhisperX
-- Anthropic API key for Claude Sonnet 4.6
+- Python 3.12 (Windows; pythonnet không có wheel cho Python 3.13/3.14)
+- ffmpeg + ffprobe + yt-dlp.exe (script `scripts/fetch_vendor_bins.py` tự pull về `vendor/`)
+- (Tùy chọn) NVIDIA GPU với CUDA 12 cho WhisperX nhanh
+- Anthropic API key cho Claude Sonnet 4.6
 
 ### Mac dev
 
