@@ -22,17 +22,8 @@ jobs:
           pip install -e .
           pip install pyinstaller packaging
 
-      - name: Download ffmpeg
-        shell: pwsh
-        run: |
-          $ffmpegDir = "vendor/ffmpeg"
-          New-Item -ItemType Directory -Force -Path $ffmpegDir | Out-Null
-          $url = "https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip"
-          Invoke-WebRequest -Uri $url -OutFile "$ffmpegDir/ffmpeg.zip"
-          Expand-Archive -Path "$ffmpegDir/ffmpeg.zip" -DestinationPath "$ffmpegDir/_unpack"
-          Copy-Item "$ffmpegDir/_unpack/*/bin/ffmpeg.exe" -Destination "$ffmpegDir/ffmpeg.exe"
-          Copy-Item "$ffmpegDir/_unpack/*/bin/ffprobe.exe" -Destination "$ffmpegDir/ffprobe.exe"
-          Remove-Item -Recurse -Force "$ffmpegDir/_unpack","$ffmpegDir/ffmpeg.zip"
+      - name: Download vendor binaries (yt-dlp + ffmpeg + ffprobe)
+        run: python scripts/fetch_vendor_bins.py
 
       - name: Build exe with PyInstaller
         run: pyinstaller youtok.spec --noconfirm
