@@ -63,6 +63,43 @@ def has_videotoolbox() -> bool:
         logger.info(f"h264_videotoolbox available: {_VIDEOTOOLBOX_AVAILABLE}")
     return _VIDEOTOOLBOX_AVAILABLE
 
+
+def _supports_nvenc() -> bool:
+    """Check h264_nvenc encoder is built in AND a working NVIDIA GPU is present.
+    Encoder being listed isn't enough — driver / GPU might be missing."""
+    if platform.system() != "Windows":
+        return False
+    try:
+        r = subprocess.run(
+            [str(settings.ffmpeg), "-hide_banner", "-encoders"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if "h264_nvenc" not in r.stdout:
+            return False
+        # Real probe: encode 1 frame of black via NVENC. Fails fast (~0.5s) if no GPU.
+        probe = subprocess.run(
+            [
+                str(settings.ffmpeg), "-hide_banner", "-loglevel", "error",
+                "-f", "lavfi", "-i", "color=c=black:s=320x240:d=0.04",
+                "-c:v", "h264_nvenc", "-f", "null", "-",
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+        return probe.returncode == 0
+    except Exception:
+        return False
+
+
+_NVENC_AVAILABLE: bool | None = None
+
+
+def has_nvenc() -> bool:
+    global _NVENC_AVAILABLE
+    if _NVENC_AVAILABLE is None:
+        _NVENC_AVAILABLE = _supports_nvenc()
+        logger.info(f"h264_nvenc available: {_NVENC_AVAILABLE}")
+    return _NVENC_AVAILABLE
+
 FONT_FILE = "NotoSans-Bold.ttf"
 FONT_NAME = "Noto Sans Bold"
 
@@ -278,6 +315,23 @@ def render_clip(
 
     if has_videotoolbox():
         video_codec_args = ["-c:v", "h264_videotoolbox", "-q:v", "55", "-realtime", "0"]
+    elif has_nvenc():
+        # GPU encode on NVIDIA. p5 = quality-leaning preset (still ~10× faster
+        # than libx264 medium on a 1660 SUPER). VBR with CQ22 + spatial/temporal
+        # AQ matches libx264 medium CRF18 visually; cap bitrate so files don't
+        # balloon on high-motion clips.
+        video_codec_args = [
+            "-c:v", "h264_nvenc",
+            "-preset", "p5",
+            "-tune", "hq",
+            "-rc", "vbr",
+            "-cq", "22",
+            "-b:v", "4M",
+            "-maxrate", "6M",
+            "-bufsize", "8M",
+            "-spatial_aq", "1",
+            "-temporal_aq", "1",
+        ]
     else:
         video_codec_args = ["-c:v", "libx264", "-preset", "medium", "-crf", "18"]
 
